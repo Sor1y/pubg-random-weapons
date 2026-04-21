@@ -35,6 +35,7 @@ const App = {
       totalScore: 0,
       activePunishment: null,
       punishmentExpiresAfterRound: null,
+      punishmentDrawCount: 0,
       activeCards: [],
       roundEffects: [],
       thiefTarget: null,
@@ -271,7 +272,8 @@ const App = {
 
       if (player.cards.length > 0) {
         drawnCount++;
-        wrapper.insertAdjacentHTML('beforeend', Cards.renderCardFront(player.cards[0]));
+        const html = Cards.renderCardFront(player.cards[0]);
+        wrapper.insertAdjacentHTML('beforeend', html.replace('card-front', 'card-front no-anim'));
       } else {
         Cards.renderCardBack(wrapper, card => {
           player.cards.push(card);
@@ -397,7 +399,6 @@ const App = {
   weaponBadge(weapon) {
     return `
       <span class="weapon-name">${weapon.name}</span>
-      <span class="tier-badge tier-${weapon.tier}">${weapon.tier}</span>
       <span class="type-badge">${WEAPON_TYPES[weapon.type].name}</span>
     `;
   },
@@ -467,7 +468,7 @@ const App = {
       return false;
     }
 
-    if (['upgrade', 'downgrade', 'reroll'].includes(card.effect)) {
+    if (['reroll'].includes(card.effect)) {
       return target.weapons.some(Boolean);
     }
 
@@ -583,35 +584,11 @@ const App = {
         player.swapTarget = targetIdx;
         break;
 
-      case 'fist':
-      case 'melee':
+      case 'melee_only':
       case 'no_scope':
       case 'no_meds':
         this.state.players[targetIdx].roundEffects.push(card.effect);
         break;
-
-      case 'upgrade':
-      case 'downgrade': {
-        const target = this.state.players[targetIdx];
-        const availableWeapons = target.weapons.filter(Boolean);
-        if (!availableWeapons.length) {
-          return;
-        }
-
-        const selectedWeapon = availableWeapons[Math.floor(Math.random() * availableWeapons.length)];
-        const tiers = ['C', 'B', 'A', 'S'];
-        const tierIndex = tiers.indexOf(selectedWeapon.tier);
-
-        if (card.effect === 'upgrade' && tierIndex < tiers.length - 1) {
-          selectedWeapon.tier = tiers[tierIndex + 1];
-        }
-
-        if (card.effect === 'downgrade' && tierIndex > 0) {
-          selectedWeapon.tier = tiers[tierIndex - 1];
-        }
-
-        break;
-      }
 
       case 'reroll': {
         const target = this.state.players[targetIdx];
@@ -772,6 +749,16 @@ const App = {
   },
 
   renderWeaponDrawScreen() {
+    while (this.currentSpinPlayer < this.state.players.length) {
+      const p = this.state.players[this.currentSpinPlayer];
+      if (p.roundEffects.includes('melee_only')) {
+        this.currentSpinPlayer++;
+        this.currentSpinSlot = 0;
+        continue;
+      }
+      break;
+    }
+
     const player = this.state.players[this.currentSpinPlayer];
     if (!player) {
       this.afterAllWeaponsDrawn();
@@ -788,7 +775,6 @@ const App = {
           <div class="draw-result-display">
             <div class="result-weapon">${slotName}: ${weapon.name}</div>
             <div class="result-info">
-              <span class="tier-badge tier-${weapon.tier}">${weapon.tier}档</span>
               <span>${WEAPON_TYPES[weapon.type].name}</span>
             </div>
           </div>
@@ -851,6 +837,7 @@ const App = {
     const takenIds = [];
 
     this.state.players.forEach(player => {
+      if (player.roundEffects.includes('melee_only')) return;
       player.weapons[0] = this.drawWeaponFromTaken(takenIds);
       player.weapons[1] = this.drawWeaponFromTaken(takenIds);
     });
@@ -860,9 +847,10 @@ const App = {
     this.showModal(`
       <h3>同时抽取完成</h3>
       <div class="result-summary">
-        ${this.state.players.map(player => `
-          <p><strong>${player.name}</strong>: ${player.weapons[0].name} / ${player.weapons[1].name}</p>
-        `).join('')}
+        ${this.state.players.map(player => {
+          if (player.roundEffects.includes('melee_only')) return `<p><strong>${player.name}</strong>: 近战挑战 👊</p>`;
+          return `<p><strong>${player.name}</strong>: ${player.weapons[0]?.name || '无'} / ${player.weapons[1]?.name || '无'}</p>`;
+        }).join('')}
       </div>
       <button class="btn btn-primary" onclick="App.closeModal()">确认</button>
     `);
@@ -896,8 +884,7 @@ const App = {
   getPlayerRestrictionSummary(player) {
     const details = [];
 
-    if (player.roundEffects.includes('fist')) details.push('本局只能用拳头，计分补偿 ×5');
-    if (player.roundEffects.includes('melee')) details.push('本局只能用近战武器，计分补偿 ×3');
+    if (player.roundEffects.includes('melee_only')) details.push('本局近战挑战，计分补偿 ×4');
     if (player.roundEffects.includes('no_scope')) details.push('4 倍以上倍镜禁用');
     if (player.roundEffects.includes('no_meds')) details.push('饮料和止痛药禁用');
     if (player.activePunishment) details.push(`惩罚: ${player.activePunishment.name} · ${player.activePunishment.description}`);
@@ -916,8 +903,8 @@ const App = {
       return `
         <div class="loadout-player">
           <div class="player-name">${player.name}</div>
-          ${player.weapons[0] ? `<div class="loadout-weapon"><span>${player.weapons[0].name}</span><span class="tier-badge tier-${player.weapons[0].tier}">${player.weapons[0].tier} ${WEAPON_TYPES[player.weapons[0].type].name}</span></div>` : ''}
-          ${player.weapons[1] ? `<div class="loadout-weapon"><span>${player.weapons[1].name}</span><span class="tier-badge tier-${player.weapons[1].tier}">${player.weapons[1].tier} ${WEAPON_TYPES[player.weapons[1].type].name}</span></div>` : ''}
+          ${player.weapons[0] ? `<div class="loadout-weapon"><span>${player.weapons[0].name}</span><span class="type-badge">${WEAPON_TYPES[player.weapons[0].type].name}</span></div>` : ''}
+          ${player.weapons[1] ? `<div class="loadout-weapon"><span>${player.weapons[1].name}</span><span class="type-badge">${WEAPON_TYPES[player.weapons[1].type].name}</span></div>` : ''}
           ${player.scope ? `<span class="loadout-scope">${this.getPlayerScopeLabel(player)}</span>` : ''}
           ${restrictions.length ? `<div class="loadout-stack">${restrictions.map(item => `<span class="effect-tag">${item}</span>`).join('')}</div>` : ''}
         </div>
@@ -994,28 +981,15 @@ const App = {
         damage: result.damage,
         tail: result.tail,
         finalScore: result.finalScore,
-        bestIndex: result.bestIndex,
-        doubleApplied: result.doubleApplied,
+        op: result.op ? { op: result.op.op, label: result.op.label } : null,
+        afterOp: result.afterOp,
+        weaponType: result.weaponType,
+        weaponName: result.weaponName,
+        doubleCount: result.doubleCount || 0,
+        meleeMultiplier: result.meleeMultiplier || 1,
         thiefStolen: result.thiefStolen || 0,
         thiefFrom: result.thiefFrom || null,
         swapped: result.swapped || null,
-        weaponResults: result.weaponResults.map(item => {
-          if (!item.weapon) return null;
-          return {
-            score: item.score,
-            tail: item.tail,
-            afterOp: item.afterOp,
-            multiplier: item.multiplier,
-            fistMelee: item.fistMelee,
-            weapon: {
-              id: item.weapon.id,
-              name: item.weapon.name,
-              type: item.weapon.type,
-              tier: item.weapon.tier,
-            },
-            op: item.op ? { op: item.op.op, label: item.op.label } : null,
-          };
-        }),
       })),
     };
 
@@ -1085,7 +1059,8 @@ const App = {
       if (entry.status === 'full') {
         slot.insertAdjacentHTML('beforeend', '<p class="reward-full">手牌已满（2张）</p>');
       } else if (entry.status === 'drawn' && entry.card) {
-        slot.insertAdjacentHTML('beforeend', Cards.renderCardFront(entry.card));
+        const html = Cards.renderCardFront(entry.card);
+        slot.insertAdjacentHTML('beforeend', html.replace('card-front', 'card-front no-anim'));
       } else {
         Cards.renderCardBack(slot, card => {
           player.cards.push(card);
@@ -1102,6 +1077,10 @@ const App = {
 
     const allDone = entries.every(entry => entry.status !== 'pending');
     nextButton.style.display = allDone ? 'block' : 'none';
+    if (allDone) {
+      const isLast = this.state.currentRound >= this.state.totalRounds;
+      nextButton.textContent = isLast ? '结束本轮' : '下一局';
+    }
     this.saveState();
   },
 
@@ -1114,47 +1093,42 @@ const App = {
       return;
     }
 
-    if (this.state.currentRound % 3 === 0 && this.state.currentRound < this.state.totalRounds) {
-      this.showPunishment();
-      return;
-    }
-
-    this.state.currentRound++;
-    this.enterRound({ fresh: true });
+    this.showPunishment();
   },
 
   showPunishment() {
-    const phaseStart = this.state.currentRound - 2;
-    const phaseEnd = this.state.currentRound;
+    const players = this.state.players;
+    const weights = players.map(p => {
+      const base = 25;
+      const reduction = (p.punishmentDrawCount || 0) * 8;
+      return Math.max(2, base - reduction);
+    });
+    const totalWeight = weights.reduce((s, w) => s + w, 0);
+    let rand = Math.random() * totalWeight;
+    let chosenIndex = 0;
+    for (let i = 0; i < weights.length; i++) {
+      rand -= weights[i];
+      if (rand <= 0) { chosenIndex = i; break; }
+    }
 
-    const phaseScores = this.state.players.map(player => {
-      let phaseTotal = 0;
-      for (let roundIndex = phaseStart - 1; roundIndex < phaseEnd; roundIndex++) {
-        phaseTotal += (player.scores[roundIndex] || 0) + this.getScoreAdjustmentTotal(player, roundIndex);
-      }
-      return {
-        player,
-        playerIndex: this.state.players.indexOf(player),
-        phaseTotal,
-      };
-    }).sort((left, right) => left.phaseTotal - right.phaseTotal);
+    const chosen = players[chosenIndex];
+    chosen.punishmentDrawCount = (chosen.punishmentDrawCount || 0) + 1;
 
-    const loser = phaseScores[0];
     const punishment = Cards.drawPunishmentCard();
+    chosen.activePunishment = punishment;
+    chosen.punishmentExpiresAfterRound = this.state.currentRound + 1;
 
-    loser.player.activePunishment = punishment;
-    loser.player.punishmentExpiresAfterRound = this.state.currentRound + 1;
+    const probabilities = weights.map((w, i) => ({
+      name: players[i].name,
+      pct: Math.round(w / totalWeight * 100),
+    }));
+
     this.state.pendingPunishment = {
-      playerIndex: loser.playerIndex,
-      phaseStart,
-      phaseEnd,
+      playerIndex: chosenIndex,
       punishment,
       rerolled: false,
       cost: 0,
-      phaseScores: phaseScores.map(item => ({
-        playerName: item.player.name,
-        phaseTotal: item.phaseTotal,
-      })),
+      probabilities,
     };
 
     this.renderPunishmentView();
@@ -1166,26 +1140,20 @@ const App = {
 
     const player = this.state.players[data.playerIndex];
 
-    document.getElementById('punishment-phase-chip').textContent = `第 ${data.phaseStart}-${data.phaseEnd} 局阶段`;
-    document.getElementById('punishment-round-chip').textContent = `下一局生效 · 第 ${this.state.currentRound + 1} 局`;
+    document.getElementById('punishment-phase-chip').textContent = `第 ${this.state.currentRound} 局结束`;
+    const isLast = this.state.currentRound >= this.state.totalRounds;
+    document.getElementById('punishment-round-chip').textContent = isLast ? '最后一局' : `下一局生效`;
 
-    document.getElementById('phase-summary').innerHTML = `
-      <h3>阶段总分</h3>
-      ${data.phaseScores.map((item, index) => `
-        <div class="phase-row ${index === 0 ? 'loser' : ''}">
-          <span>${index === 0 ? '垫底 · ' : ''}${item.playerName}</span>
-          <span>${Math.round(item.phaseTotal)}</span>
-        </div>
-      `).join('')}
-    `;
+    document.getElementById('phase-summary').innerHTML = '';
 
     document.getElementById('punishment-area').innerHTML = `
-      <p class="punishment-lead"><strong>${player.name}</strong> 抽到了以下惩罚卡：</p>
+      <p class="punishment-lead"><strong>${player.name}</strong> 被随机选中！</p>
       ${Cards.renderPunishmentCard(data.punishment)}
-      <button class="btn btn-reroll" onclick="App.rerollPunishment()">
-        花费 20% 当前总分（${Math.round(player.totalScore * 0.2)} 分）重抽
-      </button>
-      ${data.rerolled ? `<p class="punishment-note">已重抽，额外扣除 ${data.cost} 分</p>` : ''}
+      ${!data.rerolled ? `
+        <button class="btn btn-reroll" onclick="App.rerollPunishment()">
+          扣 3 分重抽一次
+        </button>
+      ` : `<p class="punishment-note">已重抽，扣除 3 分</p>`}
     `;
 
     this.showView('view-punishment', false);
@@ -1197,7 +1165,7 @@ const App = {
     if (!data || data.rerolled) return;
 
     const player = this.state.players[data.playerIndex];
-    const cost = Math.round(player.totalScore * 0.2);
+    const cost = 3;
     let newPunishment = Cards.drawPunishmentCard();
     let guard = 0;
 
@@ -1223,6 +1191,12 @@ const App = {
 
   afterPunishment() {
     this.state.pendingPunishment = null;
+
+    if (this.state.currentRound >= this.state.totalRounds) {
+      this.renderFinal();
+      return;
+    }
+
     this.state.currentRound++;
     this.enterRound({ fresh: true });
   },

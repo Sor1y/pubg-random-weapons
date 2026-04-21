@@ -33,13 +33,13 @@ const WeaponDraw = {
     const cycle = () => {
       const rw = this.weapons[Math.floor(Math.random() * this.weapons.length)];
       nameEl.textContent = rw.name;
-      infoEl.innerHTML = `<span class="tier-badge tier-${rw.tier}">${rw.tier}</span> <span>${WEAPON_TYPES[rw.type].name}</span>`;
+      infoEl.innerHTML = `<span>${WEAPON_TYPES[rw.type].name}</span>`;
 
       iteration++;
 
       if (iteration >= totalIterations) {
         nameEl.textContent = result.name;
-        infoEl.innerHTML = `<span class="tier-badge tier-${result.tier}">${result.tier}</span> <span>${WEAPON_TYPES[result.type].name}</span>`;
+        infoEl.innerHTML = `<span>${WEAPON_TYPES[result.type].name}</span>`;
         card.className = 'draw-card result';
         this.isDrawing = false;
         btn.disabled = false;

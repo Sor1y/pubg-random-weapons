@@ -38,53 +38,35 @@ const Scoring = {
   computePlayerScore(player, damage) {
     const tail = damage % 10;
     const shieldActive = player.activeCards?.includes('shield');
-    const doubleCount = player.activeCards?.filter(card => card === 'double').length || 0;
+    const doubleCount = player.activeCards?.filter(c => c === 'double').length || 0;
+    const isMelee = player.roundEffects?.includes('melee_only');
 
-    const weaponResults = player.weapons.map(weapon => {
-      if (!weapon) {
-        return { score: 0, tail, op: null, afterOp: 0, multiplier: 1, weapon: null, fistMelee: 1 };
-      }
+    const weapon = player.weapons[0] || player.weapons[1];
+    const weaponType = weapon ? weapon.type : 'AR';
+    const ops = OPERATIONS[weaponType];
+    const op = weightedRandom(ops);
 
-      const operation = weightedRandom(OPERATIONS[weapon.type]);
-      let afterOperation = operation.fn(tail);
+    let afterOp = op.fn(tail);
+    if (shieldActive && afterOp < tail) afterOp = tail;
 
-      if (shieldActive && afterOperation < tail) {
-        afterOperation = tail;
-      }
+    let meleeMultiplier = isMelee ? 4 : 1;
+    let computed = afterOp * meleeMultiplier;
 
-      let fistMeleeMultiplier = 1;
-      if (player.roundEffects?.includes('fist')) fistMeleeMultiplier = 5;
-      if (player.roundEffects?.includes('melee')) fistMeleeMultiplier = 3;
+    if (doubleCount > 0) computed *= Math.pow(2, doubleCount);
 
-      const multiplier = TIER_INFO[weapon.tier].multiplier;
-      const score = Math.round(afterOperation * multiplier * fistMeleeMultiplier);
-
-      return {
-        score,
-        tail,
-        op: operation,
-        afterOp: afterOperation,
-        multiplier,
-        weapon,
-        fistMelee: fistMeleeMultiplier,
-      };
-    });
-
-    const bestWeapon = weaponResults.reduce((left, right) => (left.score >= right.score ? left : right));
-    let finalScore = bestWeapon.score;
-
-    if (doubleCount > 0) {
-      finalScore *= Math.pow(2, doubleCount);
-    }
+    const finalScore = Math.round(computed) % 10;
 
     return {
       player,
       damage,
       tail,
-      weaponResults,
-      bestIndex: weaponResults.indexOf(bestWeapon),
-      finalScore: Math.round(finalScore),
+      weaponType,
+      weaponName: weapon ? weapon.name : '近战',
+      op,
+      afterOp,
+      meleeMultiplier,
       doubleCount,
+      finalScore,
     };
   },
 
@@ -98,41 +80,26 @@ const Scoring = {
         return;
       }
 
-      const result = results[index];
+      const r = results[index];
       const card = document.createElement('div');
       card.className = 'score-step';
 
-      let html = `<div class="step-player">${result.player.name}<span class="step-damage">伤害 ${result.damage}</span></div>`;
+      let html = `<div class="step-player">${r.player.name}<span class="step-damage">伤害 ${r.damage}</span></div>`;
 
-      result.weaponResults.forEach((weaponResult, weaponIndex) => {
-        if (!weaponResult.weapon) return;
-        const isBest = weaponIndex === result.bestIndex;
-        const slotLabel = weaponIndex === 0 ? '主' : '副';
+      html += `
+        <div class="step-detail">
+          <span>尾数 <span class="score-number">${r.tail}</span></span>
+          <span class="score-op ${this.getOpClass(r.op)}">${r.op.op}</span>
+          <span class="score-arrow">→</span>
+          <span class="score-number">${r.afterOp}</span>
+          ${r.meleeMultiplier > 1 ? `<span class="score-arrow">×${r.meleeMultiplier}(近战)</span>` : ''}
+          ${r.doubleCount > 0 ? `<span class="score-op extreme">×${Math.pow(2, r.doubleCount)}</span>` : ''}
+          <span class="score-arrow">→ 取尾数 →</span>
+          <span class="score-number">${r.finalScore}</span>
+        </div>
+      `;
 
-        html += `
-          <div class="step-detail" style="${isBest ? '' : 'opacity:0.55'}">
-            <span class="slot-label">[${slotLabel}]</span>
-            <span>${weaponResult.weapon.name}</span>
-            <span class="tier-badge tier-${weaponResult.weapon.tier}">${weaponResult.weapon.tier}</span>
-            <span class="score-arrow">→</span>
-            <span>尾数 <span class="score-number">${weaponResult.tail}</span></span>
-            <span class="score-op ${this.getOpClass(weaponResult.op)}">${weaponResult.op.op}</span>
-            <span class="score-arrow">→</span>
-            <span class="score-number">${weaponResult.afterOp}</span>
-            <span class="score-arrow">×${weaponResult.multiplier}</span>
-            ${weaponResult.fistMelee > 1 ? `<span class="score-arrow">×${weaponResult.fistMelee}</span>` : ''}
-            <span class="score-arrow">→</span>
-            <span class="score-number">${weaponResult.score}</span>
-            ${isBest ? '<span class="score-picked">取高</span>' : ''}
-          </div>
-        `;
-      });
-
-      if (result.doubleCount > 0) {
-        html += `<div class="step-detail"><span class="score-op extreme">双倍快乐 ×${Math.pow(2, result.doubleCount)}</span></div>`;
-      }
-
-      html += `<div class="step-final">得分: ${result.finalScore}</div>`;
+      html += `<div class="step-final">得分: ${r.finalScore}</div>`;
       card.innerHTML = html;
       animationArea.appendChild(card);
 
@@ -143,12 +110,13 @@ const Scoring = {
     showNext();
   },
 
-  getOpClass(operation) {
-    if (!operation) return 'neutral';
-    if (operation.op === '×0') return 'negative';
-    if (operation.op.startsWith('-')) return 'negative';
-    if (['x²', '×3', '×4', '+10', '+7'].includes(operation.op)) return 'extreme';
-    if (operation.op.startsWith('+') || operation.op === '×2') return 'positive';
+  getOpClass(op) {
+    if (!op) return 'neutral';
+    if (op.op === '×0') return 'negative';
+    if (op.op.startsWith('-')) return 'negative';
+    if (op.op === '÷2' || op.op === '10-x' || op.op === '9-x') return 'neutral';
+    if (['x²', '×3', '×4', '×5', '+10', '+7', '+8', '+9'].includes(op.op)) return 'extreme';
+    if (op.op.startsWith('+') || op.op === '×2') return 'positive';
     return 'neutral';
   },
 
@@ -182,6 +150,21 @@ const Scoring = {
     });
 
     results.forEach((result, playerIndex) => {
+      result.finalScore = Math.round(result.finalScore) % 10;
+    });
+
+    const scoreCounts = {};
+    results.forEach(r => {
+      scoreCounts[r.finalScore] = (scoreCounts[r.finalScore] || 0) + 1;
+    });
+    results.forEach(r => {
+      if (scoreCounts[r.finalScore] >= 2) {
+        r.duplicatePenalty = 3;
+        r.finalScore = r.finalScore - 3;
+      }
+    });
+
+    results.forEach((result, playerIndex) => {
       state.players[playerIndex].scores.push(result.finalScore);
     });
 
@@ -196,6 +179,10 @@ const Scoring = {
     rankingDiv.innerHTML = '<h3>本局排名</h3>' + sorted.map((result, index) => {
       const rank = index + 1;
       let extra = '';
+
+      if (result.duplicatePenalty) {
+        extra += ` <span class="rank-extra warning">撞分 -${result.duplicatePenalty}</span>`;
+      }
 
       if (result.thiefStolen) {
         extra += ` <span class="rank-extra warning">偷了 ${result.thiefFrom} ${result.thiefStolen} 分</span>`;
