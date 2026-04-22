@@ -1,9 +1,13 @@
-const STORAGE_KEY = 'pubg_game_state_v2';
+const STORAGE_KEY = 'pubg_game_state_v3';
+const PLAYER_LIBRARY_KEY = 'pubg_player_library_v1';
 
 const App = {
   state: null,
+  playerLibrary: [],
+  activePlayerInputIndex: 0,
   currentSpinPlayer: 0,
   currentSpinSlot: 0,
+  cardPhaseSession: null,
 
   createInitialState() {
     return {
@@ -15,8 +19,10 @@ const App = {
       players: [],
       roundHistory: [],
       pendingRewardPlayers: [],
-      pendingPunishment: null,
+      pendingPunishments: [],
+      drawHistory: normalizeDrawHistory(),
       lastRoundSnapshot: null,
+      cardPhaseCompleted: false,
       spinState: {
         playerIndex: 0,
         slotIndex: 0,
@@ -28,14 +34,12 @@ const App = {
     return {
       name,
       weapons: [null, null],
-      scope: null,
+      scopes: [],
       cards: [],
       scores: [],
       scoreAdjustments: [],
       totalScore: 0,
       activePunishment: null,
-      punishmentExpiresAfterRound: null,
-      punishmentDrawCount: 0,
       activeCards: [],
       roundEffects: [],
       thiefTarget: null,
@@ -52,6 +56,11 @@ const App = {
         ...this.createPlayer(player.name || '玩家'),
         ...player,
         weapons: Array.isArray(player.weapons) ? player.weapons : [null, null],
+        scopes: Array.isArray(player.scopes)
+          ? player.scopes
+          : player.scope
+            ? [player.scope]
+            : [],
         cards: Array.isArray(player.cards) ? player.cards : [],
         scores: Array.isArray(player.scores) ? player.scores : [],
         scoreAdjustments: Array.isArray(player.scoreAdjustments) ? player.scoreAdjustments : [],
@@ -60,23 +69,148 @@ const App = {
       })),
       roundHistory: Array.isArray(savedState.roundHistory) ? savedState.roundHistory : [],
       pendingRewardPlayers: Array.isArray(savedState.pendingRewardPlayers) ? savedState.pendingRewardPlayers : [],
+      pendingPunishments: Array.isArray(savedState.pendingPunishments) ? savedState.pendingPunishments : [],
+      drawHistory: normalizeDrawHistory(savedState.drawHistory),
       spinState: savedState.spinState || base.spinState,
+      cardPhaseCompleted: Boolean(savedState.cardPhaseCompleted),
     };
 
     if (!hydrated.players.length) {
       hydrated.currentView = 'view-setup';
     }
 
+    hydrated.map = getMapById(hydrated.map) ? hydrated.map : base.map;
+
     return hydrated;
   },
 
   init() {
     this.state = this.createInitialState();
-    this.renderMapSelector();
-    this.loadState();
-    this.populateSetupForm();
-    this.renderMapPreview();
-    this.syncTheme();
+    this.playerLibrary = this.loadPlayerLibrary();
+    this.attachSetupListeners();
+
+    const restored = this.loadState();
+    if (!restored) {
+      this.populateSetupForm();
+      this.renderPlayerLibrary();
+      this.syncTheme();
+      this.showView('view-setup', false);
+    }
+  },
+
+  attachSetupListeners() {
+    for (let index = 0; index < 4; index++) {
+      const input = document.getElementById(`player-${index + 1}`);
+      if (!input) continue;
+
+      input.addEventListener('focus', () => {
+        this.selectPlayerSlot(index);
+      });
+    }
+
+    const rosterInput = document.getElementById('roster-name-input');
+    if (rosterInput) {
+      rosterInput.addEventListener('keydown', event => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          this.addPlayerLibraryName();
+        }
+      });
+    }
+  },
+
+  loadPlayerLibrary() {
+    const saved = localStorage.getItem(PLAYER_LIBRARY_KEY);
+    if (!saved) return [];
+
+    try {
+      const parsed = JSON.parse(saved);
+      return Array.isArray(parsed)
+        ? parsed
+          .map(name => String(name || '').trim())
+          .filter(Boolean)
+        : [];
+    } catch (error) {
+      return [];
+    }
+  },
+
+  savePlayerLibrary() {
+    localStorage.setItem(PLAYER_LIBRARY_KEY, JSON.stringify(this.playerLibrary));
+  },
+
+  rememberNames(names) {
+    const nextLibrary = [...this.playerLibrary];
+    names.forEach(name => {
+      if (name && !nextLibrary.includes(name)) {
+        nextLibrary.push(name);
+      }
+    });
+    this.playerLibrary = nextLibrary;
+    this.savePlayerLibrary();
+    this.renderPlayerLibrary();
+  },
+
+  renderPlayerLibrary() {
+    const container = document.getElementById('player-library-list');
+    if (!container) return;
+
+    container.innerHTML = this.playerLibrary.length
+      ? this.playerLibrary.map(name => `
+          <button class="library-chip" type="button" onclick="App.usePlayerLibraryName('${name.replace(/'/g, "\\'")}')">
+            ${name}
+          </button>
+        `).join('')
+      : '';
+
+    document.querySelectorAll('.player-slot').forEach((slot, index) => {
+      slot.classList.toggle('is-active', index === this.activePlayerInputIndex);
+    });
+  },
+
+  selectPlayerSlot(index) {
+    this.activePlayerInputIndex = index;
+    this.renderPlayerLibrary();
+  },
+
+  getPreferredPlayerSlotIndex() {
+    if (this.activePlayerInputIndex >= 0) {
+      return this.activePlayerInputIndex;
+    }
+
+    for (let index = 0; index < 4; index++) {
+      const value = document.getElementById(`player-${index + 1}`)?.value.trim();
+      if (!value) return index;
+    }
+
+    return 0;
+  },
+
+  usePlayerLibraryName(name) {
+    const slotIndex = this.getPreferredPlayerSlotIndex();
+    const input = document.getElementById(`player-${slotIndex + 1}`);
+    if (!input) return;
+
+    input.value = name;
+    input.focus();
+    this.selectPlayerSlot(slotIndex);
+  },
+
+  addPlayerLibraryName() {
+    const input = document.getElementById('roster-name-input');
+    if (!input) return;
+
+    const name = input.value.trim();
+    if (!name) return;
+
+    if (!this.playerLibrary.includes(name)) {
+      this.playerLibrary.push(name);
+      this.savePlayerLibrary();
+    }
+
+    input.value = '';
+    this.renderPlayerLibrary();
+    this.usePlayerLibraryName(name);
   },
 
   syncTheme() {
@@ -104,74 +238,162 @@ const App = {
     document.getElementById('modal-overlay').style.display = 'none';
   },
 
+  enhanceAccordions(root = document) {
+    root.querySelectorAll('details[data-accordion]').forEach(details => {
+      if (details.dataset.accordionBound === 'true') return;
+
+      const summary = details.querySelector('summary');
+      const content = details.querySelector('[data-accordion-content]');
+      if (!summary || !content) return;
+
+      details.dataset.accordionBound = 'true';
+      details.classList.toggle('is-open', details.open);
+      content.style.height = details.open ? 'auto' : '0px';
+
+      summary.addEventListener('click', event => {
+        event.preventDefault();
+        this.toggleAccordion(details);
+      });
+    });
+  },
+
+  toggleAccordion(details) {
+    const content = details.querySelector('[data-accordion-content]');
+    const inner = content?.firstElementChild;
+    if (!content || !inner || details.dataset.animating === 'true') return;
+
+    const isOpening = !details.open;
+    const group = details.dataset.accordionGroup;
+    const startHeight = content.offsetHeight;
+    const targetHeight = inner.scrollHeight;
+
+    if (isOpening && group) {
+      details.parentElement?.querySelectorAll(`details[data-accordion][data-accordion-group="${group}"]`).forEach(other => {
+        if (other !== details && other.open && other.dataset.animating !== 'true') {
+          this.toggleAccordion(other);
+        }
+      });
+    }
+
+    details.dataset.animating = 'true';
+    content.style.height = `${startHeight}px`;
+
+    if (isOpening) {
+      details.open = true;
+      requestAnimationFrame(() => {
+        details.classList.add('is-open');
+        content.style.height = `${targetHeight}px`;
+      });
+    } else {
+      requestAnimationFrame(() => {
+        details.classList.remove('is-open');
+        content.style.height = '0px';
+      });
+    }
+
+    const handleTransitionEnd = transitionEvent => {
+      if (transitionEvent.propertyName !== 'height') return;
+
+      content.removeEventListener('transitionend', handleTransitionEnd);
+      details.dataset.animating = 'false';
+
+      if (isOpening) {
+        content.style.height = 'auto';
+      } else {
+        details.open = false;
+      }
+    };
+
+    content.addEventListener('transitionend', handleTransitionEnd);
+  },
+
+  populateSetupForm() {
+    document.getElementById('total-rounds').value = String(this.state.totalRounds);
+
+    for (let index = 0; index < 4; index++) {
+      const input = document.getElementById(`player-${index + 1}`);
+      if (!input) continue;
+      input.value = this.state.players[index]?.name || '';
+    }
+
+    this.selectPlayerSlot(0);
+  },
+
   renderMapSelector() {
-    const container = document.getElementById('map-selector');
-    container.innerHTML = MAPS.map(map => {
-      const exclusive = map.exclusiveWeapons.length ? map.exclusiveWeapons.join(' / ') : '无当前专属主武器';
-      return `
+    const container = document.getElementById('round-map-selector');
+    if (!container) return;
+
+    container.innerHTML = MAPS.map(map => `
         <button
           class="map-card ${map.id === this.state.map ? 'selected' : ''}"
           data-map="${map.id}"
           onclick="App.selectMap('${map.id}')"
           type="button"
         >
-          <span class="map-accent" style="background:${map.accent}"></span>
           <span class="map-name">${map.name}</span>
           <span class="map-size">${map.size}</span>
-          <span class="map-note">${exclusive}</span>
         </button>
-      `;
-    }).join('');
-  },
-
-  populateSetupForm() {
-    document.getElementById('total-rounds').value = String(this.state.totalRounds);
-    document.getElementById('wheel-mode').value = this.state.wheelMode;
-
-    for (let index = 0; index < 4; index++) {
-      const input = document.getElementById(`player-${index + 1}`);
-      input.value = this.state.players[index]?.name || '';
-    }
-
-    document.querySelectorAll('.map-card').forEach(card => {
-      card.classList.toggle('selected', card.dataset.map === this.state.map);
-    });
+      `
+    ).join('');
   },
 
   renderMapPreview() {
+    const preview = document.getElementById('round-map-preview');
+    if (!preview) return;
+
     const map = getMapById(this.state.map);
-    const preview = document.getElementById('map-preview');
     const weapons = getWeaponsForMap(this.state.map);
     const exclusive = getExclusiveWeaponsForMap(this.state.map).map(weapon => weapon.name);
-    const typeCounts = Object.keys(WEAPON_TYPES).map(type => `${type} ${getWeaponsByType(weapons, type).length}`).join(' · ');
+    const poolHtml = Object.keys(WEAPON_TYPES).map((type, index) => {
+      const typedWeapons = getWeaponsByType(weapons, type);
+      return `
+        <details class="weapon-pool-group" data-accordion data-accordion-group="weapon-pool">
+          <summary class="weapon-pool-summary">
+            <span>${WEAPON_TYPES[type].name}</span>
+            <strong>${typedWeapons.length} 把</strong>
+          </summary>
+          <div class="weapon-pool-content" data-accordion-content>
+            <div class="weapon-pool-list">
+              ${typedWeapons.map(weapon => `<span class="weapon-pill">${weapon.name}</span>`).join('')}
+            </div>
+          </div>
+        </details>
+      `;
+    }).join('');
 
     preview.innerHTML = `
       <div class="map-preview-head">
-        <span class="map-preview-kicker">当前地图</span>
+        <span class="map-preview-kicker">本局地图</span>
         <h3>${map.name}</h3>
-        <p>${map.vibe}</p>
       </div>
-      <div class="map-preview-stats">
-        <div class="preview-stat">
+      <div class="map-preview-meta">
+        <div class="preview-inline-stat">
           <span>尺寸</span>
           <strong>${map.size}</strong>
         </div>
-        <div class="preview-stat">
-          <span>主特性</span>
-          <strong>${map.majorFeature}</strong>
+        <div class="preview-inline-stat preview-inline-stat-tags">
+          <span>专属枪械</span>
+          <div class="preview-tags">
+            ${(exclusive.length ? exclusive : ['当前无专属主武器']).map(item => `<span class="preview-tag">${item}</span>`).join('')}
+          </div>
         </div>
       </div>
-      <div class="map-preview-block">
-        <span class="preview-label">专属枪械</span>
-        <div class="preview-tags">
-          ${(exclusive.length ? exclusive : ['当前无专属主武器']).map(item => `<span class="preview-tag">${item}</span>`).join('')}
-        </div>
-      </div>
-      <div class="map-preview-block">
+      <div class="map-preview-block map-preview-block-pool">
         <span class="preview-label">枪池概览</span>
-        <p class="map-preview-copy">${typeCounts}</p>
+        <div class="weapon-pool-groups">${poolHtml}</div>
       </div>
     `;
+
+    this.enhanceAccordions(preview);
+  },
+
+  renderRoundMapSelection() {
+    document.getElementById('map-pick-round-chip').textContent = `第 ${this.state.currentRound}/${this.state.totalRounds} 局`;
+    document.getElementById('map-pick-mode-chip').textContent = this.getModeLabel();
+    this.renderMapSelector();
+    this.renderMapPreview();
+    this.showView('view-map-select', false);
+    this.saveState();
   },
 
   selectMap(mapId) {
@@ -182,8 +404,12 @@ const App = {
     this.saveState();
   },
 
+  confirmRoundMap() {
+    this.drawRoundPunishments();
+  },
+
   getModeLabel() {
-    return this.state.wheelMode === 'simultaneous' ? '同时随机' : '轮流抽取';
+    return '同时抽取';
   },
 
   getRoundProgressPercent() {
@@ -216,7 +442,8 @@ const App = {
 
   resetPlayerRoundState(player) {
     player.weapons = [null, null];
-    player.scope = null;
+    player.scopes = [];
+    player.activePunishment = null;
     player.activeCards = [];
     player.roundEffects = [];
     player.thiefTarget = null;
@@ -225,34 +452,42 @@ const App = {
 
   clearRoundArtifacts() {
     this.state.pendingRewardPlayers = [];
-    this.state.pendingPunishment = null;
+    this.state.pendingPunishments = [];
     this.state.lastRoundSnapshot = null;
+    this.state.cardPhaseCompleted = false;
   },
 
-  cleanExpiredPunishments() {
-    this.state.players.forEach(player => {
-      if (player.punishmentExpiresAfterRound && this.state.currentRound > player.punishmentExpiresAfterRound) {
-        player.activePunishment = null;
-        player.punishmentExpiresAfterRound = null;
-      }
-    });
+  prepareRoundSetup() {
+    this.clearRoundArtifacts();
+    this.state.players.forEach(player => this.resetPlayerRoundState(player));
+    this.currentSpinPlayer = 0;
+    this.currentSpinSlot = 0;
+    this.cardPhaseSession = null;
+    this.state.spinState = {
+      playerIndex: 0,
+      slotIndex: 0,
+    };
+
+    this.renderRoundMapSelection();
   },
 
   startGame() {
     const names = [];
+    const customNames = [];
     for (let index = 1; index <= 4; index++) {
       const input = document.getElementById(`player-${index}`);
-      names.push(input.value.trim() || `玩家${index}`);
+      const trimmed = input.value.trim();
+      names.push(trimmed || `玩家${index}`);
+      if (trimmed) {
+        customNames.push(trimmed);
+      }
     }
 
     this.state = this.createInitialState();
-    this.state.map = document.querySelector('.map-card.selected')?.dataset.map || this.state.map;
     this.state.totalRounds = parseInt(document.getElementById('total-rounds').value, 10);
-    this.state.wheelMode = document.getElementById('wheel-mode').value;
+    this.state.wheelMode = 'simultaneous';
     this.state.players = names.map(name => this.createPlayer(name));
-
-    this.renderMapSelector();
-    this.renderMapPreview();
+    this.rememberNames(customNames);
     this.renderInitialCards();
     this.showView('view-initial-cards', false);
     this.saveState();
@@ -289,36 +524,119 @@ const App = {
   },
 
   finishInitialCards() {
-    this.enterRound({ fresh: true });
+    this.prepareRoundSetup();
   },
 
-  enterRound({ fresh = false } = {}) {
-    if (fresh) {
-      this.cleanExpiredPunishments();
-      this.clearRoundArtifacts();
-      this.state.players.forEach(player => this.resetPlayerRoundState(player));
-      this.currentSpinPlayer = 0;
-      this.currentSpinSlot = 0;
-      this.state.spinState = {
-        playerIndex: 0,
-        slotIndex: 0,
+  drawRoundPunishments() {
+    const playerIndexes = shuffleArray(this.state.players.map((_, index) => index)).slice(0, Math.min(2, this.state.players.length));
+    const usedPunishmentIds = [];
+
+    this.state.pendingPunishments = playerIndexes.map(playerIndex => {
+      const punishment = Cards.drawPunishmentCard(this.state, { excludeIds: usedPunishmentIds });
+      if (punishment) {
+        usedPunishmentIds.push(punishment.id);
+      }
+      this.state.players[playerIndex].activePunishment = punishment;
+      return {
+        playerIndex,
+        punishment,
+        rerolled: false,
+        cost: 0,
       };
+    });
+
+    this.renderPunishmentView();
+  },
+
+  renderPunishmentView() {
+    const entries = this.state.pendingPunishments || [];
+    document.getElementById('punishment-phase-chip').textContent = `第 ${this.state.currentRound}/${this.state.totalRounds} 局`;
+    document.getElementById('punishment-round-chip').textContent = '随机两人抽取';
+    document.getElementById('phase-summary').innerHTML = `
+      <div class="phase-summary-card">
+        <strong>本局开始时随机两名玩家抽取惩罚卡</strong>
+        <span>惩罚立即生效，若想重抽，仍然可以扣 3 分换一次。</span>
+      </div>
+    `;
+
+    document.getElementById('punishment-area').innerHTML = `
+      <div class="punishment-grid">
+        ${entries.map((entry, entryIndex) => {
+          const player = this.state.players[entry.playerIndex];
+          return `
+            <div class="punishment-player-card">
+              <p class="punishment-player-name">${player.name}</p>
+              ${Cards.renderPunishmentCard(entry.punishment)}
+              ${entry.rerolled
+                ? '<p class="punishment-note">已重抽，扣除 3 分</p>'
+                : `<button class="btn btn-reroll" onclick="App.rerollPunishment(${entryIndex})">扣 3 分重抽</button>`}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+
+    document.getElementById('btn-punishment-done').textContent = '进入本局';
+    this.showView('view-punishment', false);
+    this.saveState();
+  },
+
+  rerollPunishment(entryIndex) {
+    const entry = this.state.pendingPunishments?.[entryIndex];
+    if (!entry || entry.rerolled) return;
+
+    const player = this.state.players[entry.playerIndex];
+    const excludeIds = this.state.pendingPunishments
+      .map((item, index) => (index === entryIndex ? item.punishment?.id : item.punishment?.id))
+      .filter(Boolean);
+    const newPunishment = Cards.drawPunishmentCard(this.state, { excludeIds });
+
+    if (!newPunishment) {
+      return;
     }
 
-    this.renderRoundScreen();
-    this.showView('view-round', false);
+    this.addScoreAdjustment(player, this.state.currentRound - 1, {
+      label: '惩罚重抽',
+      amount: -3,
+    });
+
+    player.activePunishment = newPunishment;
+    entry.punishment = newPunishment;
+    entry.rerolled = true;
+    entry.cost = 3;
+
+    this.recalculateTotals();
+    this.renderPunishmentView();
+  },
+
+  afterPunishment() {
+    this.state.pendingPunishments = [];
     this.saveState();
+    this.runRoundEquipmentDraw();
+  },
+
+  runRoundEquipmentDraw() {
+    this.currentDrawSlot = 0;
+    this.renderWeaponDrawPage();
+    setTimeout(() => this.drawAllWeapons(), 450);
+  },
+
+  areAllWeaponsDrawn() {
+    return this.state.players.every(player => player.weapons.every(Boolean));
+  },
+
+  areAllScopesDrawn() {
+    return this.state.players.every(player => player.scopes.length >= 2);
   },
 
   renderRoundScreen() {
     const map = getMapById(this.state.map);
-    const allWeaponsDrawn = this.state.players.every(player => player.weapons.every(Boolean));
-    const allScopesDrawn = this.state.players.every(player => player.scope);
-    const tip = !allWeaponsDrawn
-      ? '先确认这一局要不要打牌，再开始抽武器。'
+    const allScopesDrawn = this.areAllScopesDrawn();
+    const tip = this.state.cardPhaseCompleted
+      ? '道具卡阶段已完成，确认限制和装备后就能开打。'
       : allScopesDrawn
-        ? '装备已经锁定，可以带着限制直接开打。'
-        : '武器已经确定，接下来抽瞄准镜。';
+        ? this.getCardPhaseRuleText()
+        : '本局装备已随机完成。';
 
     document.getElementById('round-number').textContent = this.state.currentRound;
     document.getElementById('round-map-chip').textContent = `${map.shortName} · ${map.size}`;
@@ -336,8 +654,7 @@ const App = {
 
     player.roundEffects.forEach(effect => {
       const mapping = {
-        fist: '拳头限制 ×5',
-        melee: '近战限制 ×3',
+        melee_only: '近战挑战',
         no_scope: '4倍以上禁用',
         no_meds: '药品禁用',
       };
@@ -348,23 +665,45 @@ const App = {
       labels.push(`惩罚: ${player.activePunishment.name}`);
     }
 
+    labels.push(...this.getPlayerActiveCardLabels(player));
+
     return labels;
   },
 
-  getPlayerScopeLabel(player) {
-    if (!player.scope) return '';
+  getPlayerActiveCardLabels(player) {
+    const labels = [];
 
-    let label = player.scope.name;
+    player.activeCards.forEach(effect => {
+      if (effect === 'shield') {
+        labels.push('道具: 护盾');
+      } else if (effect === 'double') {
+        labels.push('道具: 双倍快乐');
+      } else if (effect === 'thief') {
+        const targetName = this.state.players[player.thiefTarget]?.name;
+        labels.push(`道具: 小偷${targetName ? ` → ${targetName}` : ''}`);
+      } else if (effect === 'swap_score') {
+        const targetName = this.state.players[player.swapTarget]?.name;
+        labels.push(`道具: 乾坤大挪移${targetName ? ` → ${targetName}` : ''}`);
+      }
+    });
 
-    if (player.roundEffects.includes('no_scope') && isHighMagnificationScope(player.scope)) {
-      label += ' · 高倍封印';
-    }
+    return labels;
+  },
 
-    if (player.activePunishment?.id === 'iron_sight') {
-      label += ' · 本局只能机瞄';
-    }
+  getPlayerScopeInfo(player) {
+    return player.scopes.map(scope => {
+      if (player.roundEffects.includes('no_scope') && isHighMagnificationScope(scope)) {
+        return {
+          label: `${getScopeDisplayName(scope)} · 禁用`,
+          className: 'is-blocked',
+        };
+      }
 
-    return label;
+      return {
+        label: getScopeDisplayName(scope),
+        className: '',
+      };
+    });
   },
 
   renderPlayerStatusCards() {
@@ -372,7 +711,7 @@ const App = {
     container.innerHTML = this.state.players.map(player => {
       const mainWeapon = player.weapons[0] ? this.weaponBadge(player.weapons[0]) : '<span class="weapon-empty">待抽取</span>';
       const sideWeapon = player.weapons[1] ? this.weaponBadge(player.weapons[1]) : '<span class="weapon-empty">待抽取</span>';
-      const scopeLabel = this.getPlayerScopeLabel(player);
+      const scopeInfo = this.getPlayerScopeInfo(player);
       const cardsHtml = player.cards.map(card => Cards.renderMiniCard(card)).join('');
       const effectLabels = this.getPlayerEffectLabels(player);
 
@@ -384,9 +723,13 @@ const App = {
           </div>
           <div class="weapon-slot">[主] ${mainWeapon}</div>
           <div class="weapon-slot">[副] ${sideWeapon}</div>
-          ${scopeLabel ? `<span class="scope-badge">${scopeLabel}</span>` : ''}
+          ${scopeInfo.length ? `
+            <div class="scope-list">
+              ${scopeInfo.map(scope => `<span class="scope-badge ${scope.className}">${scope.label}</span>`).join('')}
+            </div>
+          ` : ''}
           ${effectLabels.length ? `<div class="status-tags">${effectLabels.map(label => `<span class="status-tag">${label}</span>`).join('')}</div>` : ''}
-          <div class="card-hand">${cardsHtml || '<span class="empty-hand">无手牌</span>'}</div>
+          <div class="card-hand">${cardsHtml || '<span class="empty-hand">无道具卡</span>'}</div>
         </div>
       `;
     }).join('');
@@ -404,132 +747,10 @@ const App = {
   },
 
   syncRoundButtons() {
-    const allWeaponsDrawn = this.state.players.every(player => player.weapons.every(Boolean));
-    const allScopesDrawn = this.state.players.every(player => player.scope);
+    const allScopesDrawn = this.areAllScopesDrawn();
 
-    document.getElementById('btn-use-cards').disabled = false;
-    document.getElementById('btn-spin-weapons').disabled = allWeaponsDrawn;
-    document.getElementById('btn-spin-scopes').disabled = !allWeaponsDrawn || allScopesDrawn;
-    document.getElementById('btn-ready').disabled = !allScopesDrawn;
-  },
-
-  openCardUse() {
-    this.openCardUseForPlayer(0);
-  },
-
-  openCardUseForPlayer(playerIdx) {
-    if (playerIdx >= this.state.players.length) {
-      this.closeModal();
-      return;
-    }
-
-    const player = this.state.players[playerIdx];
-    const html = Cards.renderCardUseModal(
-      player,
-      this.state.players,
-      'App.useCard',
-      'App.closeModal'
-    );
-
-    this.showModal(html);
-
-    document.querySelectorAll('.modal-card-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const cardIndex = parseInt(item.dataset.cardIndex, 10);
-        this.handleCardUse(playerIdx, cardIndex);
-      });
-    });
-
-    const nextLabel = document.createElement('p');
-    nextLabel.className = 'modal-progress';
-    nextLabel.textContent = `(${playerIdx + 1}/${this.state.players.length})`;
-    document.getElementById('modal-content').appendChild(nextLabel);
-
-    if (playerIdx < this.state.players.length - 1) {
-      const nextBtn = document.createElement('button');
-      nextBtn.className = 'btn btn-secondary';
-      nextBtn.textContent = `下一位: ${this.state.players[playerIdx + 1].name}`;
-      nextBtn.onclick = () => this.openCardUseForPlayer(playerIdx + 1);
-      document.getElementById('modal-content').appendChild(nextBtn);
-    }
-  },
-
-  cardNeedsTarget(card) {
-    return !['shield', 'double', 'swap_all'].includes(card.effect);
-  },
-
-  canTargetCard(card, playerIdx, targetIdx) {
-    const player = this.state.players[playerIdx];
-    const target = this.state.players[targetIdx];
-
-    if (!card || !player || !target) return false;
-
-    if (['thief', 'swap_score', 'steal_weapon'].includes(card.effect) && playerIdx === targetIdx) {
-      return false;
-    }
-
-    if (['reroll'].includes(card.effect)) {
-      return target.weapons.some(Boolean);
-    }
-
-    if (card.effect === 'steal_weapon') {
-      return player.weapons.some(Boolean) && target.weapons.some(Boolean);
-    }
-
-    if (card.effect === 'swap_all') {
-      return this.state.players.filter(item => item.weapons.some(Boolean)).length >= 2;
-    }
-
-    return true;
-  },
-
-  handleCardUse(playerIdx, cardIndex) {
-    const player = this.state.players[playerIdx];
-    const card = player.cards[cardIndex];
-
-    if (!card) return;
-
-    if (card.effect === 'swap_all' && this.state.players.filter(item => item.weapons.some(Boolean)).length < 2) {
-      this.showModal(`
-        <h3>现在还不能用这张卡</h3>
-        <p class="modal-copy">至少要有两名玩家已经拥有武器，才能进行全队武器互换。</p>
-        <button class="btn btn-primary" onclick="App.openCardUseForPlayer(${playerIdx})">返回</button>
-      `);
-      return;
-    }
-
-    if (!this.cardNeedsTarget(card)) {
-      this.executeCard(playerIdx, cardIndex, null);
-      return;
-    }
-
-    this.showModal(`
-      <h3>使用 ${card.icon} ${card.name}</h3>
-      <p class="modal-copy">${card.description}</p>
-      <h4 class="modal-subtitle">选择目标</h4>
-      <div class="target-selector">
-        ${this.state.players.map((target, targetIdx) => {
-          const enabled = this.canTargetCard(card, playerIdx, targetIdx);
-          return `
-            <button
-              class="target-btn ${enabled ? '' : 'is-disabled'}"
-              onclick="${enabled ? `App.executeCard(${playerIdx}, ${cardIndex}, ${targetIdx})` : ''}"
-              ${enabled ? '' : 'disabled'}
-            >
-              ${target.name}
-            </button>
-          `;
-        }).join('')}
-      </div>
-      <button class="btn btn-secondary" onclick="App.openCardUseForPlayer(${playerIdx})">取消</button>
-    `);
-  },
-
-  drawWeaponFromTaken(takenIds) {
-    const pool = this.buildWeightedPool(takenIds);
-    const result = weightedRandom(pool);
-    takenIds.push(result.id);
-    return { ...result };
+    document.getElementById('btn-use-cards').disabled = !allScopesDrawn || this.state.cardPhaseCompleted;
+    document.getElementById('btn-ready').disabled = !allScopesDrawn || !this.state.cardPhaseCompleted;
   },
 
   getTakenWeaponIds({ ignorePlayerIndexes = [] } = {}) {
@@ -547,15 +768,365 @@ const App = {
     const basePool = getWeaponsForMap(this.state.map);
     return basePool.map(weapon => {
       const count = takenIds.filter(id => id === weapon.id).length;
+      const weight = getWeaponBaseWeight(weapon) * (count === 0 ? 1 : Math.pow(0.15, count));
       return {
         ...weapon,
-        weight: count === 0 ? weapon.weight : weapon.weight * Math.pow(0.15, count),
+        weight,
       };
     });
   },
 
   getWeightedPool(options = {}) {
     return this.buildWeightedPool(this.getTakenWeaponIds(options));
+  },
+
+  drawWeaponFromTaken(takenIds) {
+    const pool = this.buildWeightedPool(takenIds);
+    const result = weightedRandom(pool);
+    takenIds.push(result.id);
+    return { ...result };
+  },
+
+  drawWeaponPairForPlayer(playerIdx) {
+    const takenIds = this.getTakenWeaponIds({ ignorePlayerIndexes: [playerIdx] });
+    return [
+      this.drawWeaponFromTaken(takenIds),
+      this.drawWeaponFromTaken(takenIds),
+    ];
+  },
+
+  drawPlayerScopes() {
+    return drawUniqueWeightedItems(SCOPES, 2).map(scope => ({ ...scope }));
+  },
+
+  startWeaponSpin() {
+    this.currentDrawSlot = 0;
+    this.renderWeaponDrawPage();
+  },
+
+  renderWeaponDrawPage() {
+    const players = this.state.players;
+    const slotLabel = this.currentDrawSlot === 0 ? '主武器' : '副武器';
+    document.getElementById('draw-subtitle').textContent = `正在随机${slotLabel}`;
+
+    WeaponDraw.renderGrid('draw-grid', players, this.currentDrawSlot === 0 ? 'main' : 'sub');
+
+    const btn = document.getElementById('btn-draw-all');
+    btn.textContent = '准备抽取...';
+    btn.disabled = true;
+
+    this.showView('view-weapon-draw', false);
+    this.saveState();
+  },
+
+  drawAllWeapons() {
+    const players = this.state.players;
+    const slot = this.currentDrawSlot;
+
+    const btn = document.getElementById('btn-draw-all');
+    btn.disabled = true;
+    btn.textContent = '抽取中...';
+
+    const takenIds = [];
+    players.forEach(p => {
+      p.weapons.forEach(w => { if (w) takenIds.push(w.id); });
+    });
+
+    players.forEach((p, i) => {
+      if (p.roundEffects.includes('melee_only')) {
+        const { name: nameEl, card: cardEl } = WeaponDraw.getSlotElements(i);
+        if (nameEl) nameEl.textContent = '近战挑战';
+        if (cardEl) cardEl.className = 'draw-slot-card result';
+      }
+    });
+
+    const pools = players.map(p => {
+      if (p.roundEffects.includes('melee_only')) return null;
+      return this.buildWeightedPool(takenIds);
+    });
+
+    const hasAnimation = pools.some(p => p !== null);
+    if (!hasAnimation) {
+      this.afterSlotDrawn();
+      return;
+    }
+
+    const allPools = pools.map(p => p || this.buildWeightedPool(takenIds));
+
+    WeaponDraw.drawAll(allPools, (results) => {
+      results.forEach((weapon, i) => {
+        if (!players[i].roundEffects.includes('melee_only')) {
+          players[i].weapons[slot] = { ...weapon };
+        }
+      });
+      this.saveState();
+      this.afterSlotDrawn();
+    });
+  },
+
+  afterSlotDrawn(results) {
+    const btn = document.getElementById('btn-draw-all');
+    if (this.currentDrawSlot === 0) {
+      this.currentDrawSlot = 1;
+      btn.textContent = '抽取副武器中...';
+      btn.disabled = true;
+      setTimeout(() => {
+        this.renderWeaponDrawPage();
+        setTimeout(() => this.drawAllWeapons(), 300);
+      }, 900);
+    } else {
+      btn.textContent = '继续抽取瞄准镜...';
+      btn.disabled = true;
+      setTimeout(() => this.afterAllWeaponsDrawn(), 900);
+    }
+  },
+
+  spinAllSimultaneous() {
+    this.startWeaponSpin();
+  },
+
+  renderWeaponDrawScreen() {
+    this.renderWeaponDrawPage();
+  },
+
+  onWeaponResult() {},
+
+  afterAllWeaponsDrawn() {
+    this.spinScopes();
+  },
+
+  spinScopes() {
+    const players = this.state.players;
+    WeaponDraw.renderGrid('scope-draw-grid', players, 'scope');
+
+    const scopePools = players.map(() => [...SCOPES]);
+    const btn = document.getElementById('btn-scope-done');
+    btn.style.display = 'none';
+
+    this.showView('view-scope-draw', false);
+
+    setTimeout(() => {
+      WeaponDraw.drawAll(scopePools, (results) => {
+        players.forEach((p, i) => {
+          const drawn1 = results[i];
+          const drawn2 = weightedRandom(SCOPES);
+          p.scopes = [drawn1, drawn2];
+
+          const { name: nameEl, info: infoEl } = WeaponDraw.getSlotElements(i);
+          if (nameEl) {
+            nameEl.textContent = p.scopes.map(s => typeof getScopeDisplayName === 'function' ? getScopeDisplayName(s) : s.name).join(' / ');
+          }
+          if (infoEl) {
+            infoEl.textContent = '';
+          }
+        });
+
+        btn.style.display = 'inline-flex';
+        this.saveState();
+      });
+    }, 450);
+  },
+
+  afterScopesDone() {
+    this.renderRoundScreen();
+    this.showView('view-round', false);
+    this.saveState();
+  },
+
+  getPreviousRoundRanking(round = this.state.currentRound - 1) {
+    const entry = this.state.roundHistory.find(item => item.round === round);
+    if (!entry?.results?.length) {
+      return [];
+    }
+
+    return [...entry.results].sort((left, right) => {
+      if (left.finalScore !== right.finalScore) {
+        return right.finalScore - left.finalScore;
+      }
+      return left.playerIndex - right.playerIndex;
+    });
+  },
+
+  getCardPhaseRuleText() {
+    if (this.state.currentRound === 1) {
+      return '首局按座位顺序进行道具卡阶段：1 → 2 → 3 → 4。';
+    }
+
+    const orderNames = this.getCardUseOrder()
+      .map(index => this.state.players[index]?.name || `玩家${index + 1}`)
+      .join(' → ');
+
+    return orderNames
+      ? `按上一局排名倒序进行道具卡阶段：${orderNames}。`
+      : '按上一局排名倒序进行道具卡阶段。';
+  },
+
+  getCardUseOrder() {
+    const seatOrder = this.state.players.map((_, index) => index);
+
+    if (this.state.currentRound === 1) {
+      return seatOrder;
+    }
+
+    const previousRanking = this.getPreviousRoundRanking();
+    if (!previousRanking.length) {
+      return [...seatOrder].reverse();
+    }
+
+    return [...previousRanking]
+      .reverse()
+      .map(entry => entry.playerIndex);
+  },
+
+  openCardUse() {
+    if (this.state.cardPhaseCompleted || !this.areAllScopesDrawn()) return;
+
+    this.cardPhaseSession = {
+      order: this.getCardUseOrder(),
+      step: 0,
+    };
+    this.renderCardPhaseTurn();
+  },
+
+  getCurrentCardPhasePlayerIndex() {
+    if (!this.cardPhaseSession) return -1;
+    return this.cardPhaseSession.order[this.cardPhaseSession.step];
+  },
+
+  canUseCardNow(card, playerIdx) {
+    if (!card) return false;
+
+    if (card.effect === 'swap_all') {
+      return this.state.players.every(player => player.weapons.every(Boolean));
+    }
+
+    if (card.effect === 'reroll') {
+      return this.state.players.some(player => player.weapons.every(Boolean));
+    }
+
+    if (card.effect === 'steal_weapon') {
+      const player = this.state.players[playerIdx];
+      return this.state.players.some((target, targetIdx) =>
+        targetIdx !== playerIdx &&
+        player.weapons.some(Boolean) &&
+        target.weapons.some(Boolean)
+      );
+    }
+
+    return true;
+  },
+
+  renderCardPhaseTurn() {
+    const playerIdx = this.getCurrentCardPhasePlayerIndex();
+    const player = this.state.players[playerIdx];
+
+    if (!player) {
+      this.finishCardPhase();
+      return;
+    }
+
+    const cardsHtml = player.cards.length
+      ? player.cards.map((card, cardIndex) => {
+          const disabled = !this.canUseCardNow(card, playerIdx);
+          return `
+            <button
+              class="modal-card-item ${disabled ? 'disabled' : ''}"
+              type="button"
+              onclick="${disabled ? '' : `App.handleCardUse(${cardIndex})`}"
+              ${disabled ? 'disabled' : ''}
+            >
+              <div class="card-icon">${card.icon}</div>
+              <div class="card-info">
+                <div class="card-name">${card.name}</div>
+                <div class="card-desc">${card.description}</div>
+              </div>
+            </button>
+          `;
+        }).join('')
+      : '<p class="modal-copy">这位玩家当前没有可用的道具卡。</p>';
+
+    this.showModal(`
+      <h3>道具卡阶段</h3>
+      <p class="modal-copy">${this.getCardPhaseRuleText()}</p>
+      <p class="modal-copy">当前顺序：${this.cardPhaseSession.order.map(index => this.state.players[index].name).join(' → ')}</p>
+      <p class="modal-copy">轮到 <strong>${player.name}</strong>（${this.cardPhaseSession.step + 1}/${this.cardPhaseSession.order.length}）</p>
+      <div class="modal-card-list">${cardsHtml}</div>
+      <button class="btn btn-secondary" onclick="App.advanceCardPhase()">结束 ${player.name} 的回合</button>
+    `);
+  },
+
+  handleCardUse(cardIndex) {
+    const playerIdx = this.getCurrentCardPhasePlayerIndex();
+    const player = this.state.players[playerIdx];
+    const card = player?.cards?.[cardIndex];
+    if (!card) return;
+
+    if (!this.canUseCardNow(card, playerIdx)) {
+      return;
+    }
+
+    if (!this.cardNeedsTarget(card)) {
+      this.executeCard(playerIdx, cardIndex, null);
+      return;
+    }
+
+    this.showModal(`
+      <h3>使用 ${card.icon} ${card.name}</h3>
+      <p class="modal-copy">${card.description}</p>
+      <h4 class="modal-subtitle">选择目标玩家</h4>
+      <div class="target-selector">
+        ${this.state.players.map((target, targetIdx) => {
+          const enabled = this.canTargetCard(card, playerIdx, targetIdx);
+          return `
+            <button
+              class="target-btn ${enabled ? '' : 'is-disabled'}"
+              onclick="${enabled ? `App.executeCard(${playerIdx}, ${cardIndex}, ${targetIdx})` : ''}"
+              ${enabled ? '' : 'disabled'}
+              type="button"
+            >
+              ${target.name}
+            </button>
+          `;
+        }).join('')}
+      </div>
+      <button class="btn btn-secondary" onclick="App.renderCardPhaseTurn()">返回当前回合</button>
+    `);
+  },
+
+  cardNeedsTarget(card) {
+    return !['shield', 'double', 'swap_all'].includes(card.effect);
+  },
+
+  canTargetCard(card, playerIdx, targetIdx) {
+    const player = this.state.players[playerIdx];
+    const target = this.state.players[targetIdx];
+
+    if (!card || !player || !target) return false;
+
+    if (['thief', 'swap_score', 'steal_weapon'].includes(card.effect) && playerIdx === targetIdx) {
+      return false;
+    }
+
+    if (card.effect === 'reroll') {
+      return target.weapons.every(Boolean);
+    }
+
+    if (card.effect === 'steal_weapon') {
+      return player.weapons.some(Boolean) && target.weapons.some(Boolean);
+    }
+
+    return true;
+  },
+
+  showCardPhaseResult(title, bodyHtml) {
+    const playerIdx = this.getCurrentCardPhasePlayerIndex();
+    const playerName = playerIdx >= 0 ? this.state.players[playerIdx].name : '当前玩家';
+
+    this.showModal(`
+      <h3>${title}</h3>
+      <div class="result-summary">${bodyHtml}</div>
+      <button class="btn btn-primary" onclick="App.renderCardPhaseTurn()">返回 ${playerName} 的回合</button>
+    `);
   },
 
   executeCard(playerIdx, cardIndex, targetIdx) {
@@ -572,56 +1143,64 @@ const App = {
       case 'shield':
       case 'double':
         player.activeCards.push(card.effect);
-        break;
+        player.cards.splice(cardIndex, 1);
+        this.renderPlayerStatusCards();
+        this.syncRoundButtons();
+        this.saveState();
+        this.showCardPhaseResult('道具卡已生效', `<p><strong>${player.name}</strong> 使用了 <strong>${card.name}</strong></p>`);
+        return;
 
       case 'thief':
         player.activeCards.push('thief');
         player.thiefTarget = targetIdx;
-        break;
+        player.cards.splice(cardIndex, 1);
+        this.renderPlayerStatusCards();
+        this.syncRoundButtons();
+        this.saveState();
+        this.showCardPhaseResult('道具卡已生效', `<p><strong>${player.name}</strong> 将偷取 <strong>${this.state.players[targetIdx].name}</strong> 的分数</p>`);
+        return;
 
       case 'swap_score':
         player.activeCards.push('swap_score');
         player.swapTarget = targetIdx;
-        break;
+        player.cards.splice(cardIndex, 1);
+        this.renderPlayerStatusCards();
+        this.syncRoundButtons();
+        this.saveState();
+        this.showCardPhaseResult('道具卡已生效', `<p><strong>${player.name}</strong> 将与 <strong>${this.state.players[targetIdx].name}</strong> 互换本局分数</p>`);
+        return;
 
       case 'melee_only':
       case 'no_scope':
       case 'no_meds':
         this.state.players[targetIdx].roundEffects.push(card.effect);
-        break;
-
-      case 'reroll': {
-        const target = this.state.players[targetIdx];
-        if (!target.weapons.some(Boolean)) {
-          this.showModal(`
-            <h3>该玩家还没有武器</h3>
-            <p class="modal-copy">等目标抽完武器后，再用这张卡更有节目效果。</p>
-            <button class="btn btn-primary" onclick="App.openCardUseForPlayer(${playerIdx})">返回</button>
-          `);
-          return;
-        }
-
-        const takenIds = this.getTakenWeaponIds({ ignorePlayerIndexes: [targetIdx] });
-        target.weapons[0] = this.drawWeaponFromTaken(takenIds);
-        target.weapons[1] = this.drawWeaponFromTaken(takenIds);
-
         player.cards.splice(cardIndex, 1);
         this.renderPlayerStatusCards();
         this.syncRoundButtons();
         this.saveState();
-        this.showModal(`
-          <h3>${target.name} 的武器已重新随机</h3>
-          <div class="result-summary">
-            <p>主武器: <strong>${target.weapons[0].name}</strong></p>
-            <p>副武器: <strong>${target.weapons[1].name}</strong></p>
-          </div>
-          <button class="btn btn-primary" onclick="App.closeModal()">确认</button>
-        `);
+        this.showCardPhaseResult('道具卡已生效', `<p><strong>${this.state.players[targetIdx].name}</strong> 受到 <strong>${card.name}</strong> 影响</p>`);
+        return;
+
+      case 'reroll': {
+        const target = this.state.players[targetIdx];
+        target.weapons = this.drawWeaponPairForPlayer(targetIdx);
+        target.scopes = this.drawPlayerScopes();
+        player.cards.splice(cardIndex, 1);
+        this.renderPlayerStatusCards();
+        this.syncRoundButtons();
+        this.saveState();
+        this.showCardPhaseResult(
+          `${target.name} 已重新随机`,
+          `
+            <p>武器: <strong>${target.weapons[0].name}</strong> / <strong>${target.weapons[1].name}</strong></p>
+            <p>瞄准镜: <strong>${target.scopes.map(scope => getScopeDisplayName(scope)).join(' / ')}</strong></p>
+          `
+        );
         return;
       }
 
       case 'swap_all':
-        this.showSwapAllUI(playerIdx, cardIndex);
+        this.resolveSwapAll(playerIdx, cardIndex);
         return;
 
       case 'steal_weapon':
@@ -629,28 +1208,38 @@ const App = {
         return;
 
       default:
-        break;
+        return;
+    }
+  },
+
+  resolveSwapAll(playerIdx, cardIndex) {
+    const weaponPool = shuffleArray(this.state.players.flatMap(player => player.weapons.map(weapon => ({ ...weapon }))));
+    if (weaponPool.length < this.state.players.length * 2) {
+      this.showCardPhaseResult('暂时不能使用', '<p>需要四名玩家都已经持有两把武器，才能执行全队武器替换。</p>');
+      return;
     }
 
-    player.cards.splice(cardIndex, 1);
+    this.state.players.forEach((player, index) => {
+      player.weapons = [
+        weaponPool[index * 2],
+        weaponPool[index * 2 + 1],
+      ];
+    });
+
+    this.state.players[playerIdx].cards.splice(cardIndex, 1);
     this.renderPlayerStatusCards();
     this.syncRoundButtons();
-    this.closeModal();
     this.saveState();
+
+    this.showCardPhaseResult(
+      '全队武器替换完成',
+      this.state.players.map(player => `<p><strong>${player.name}</strong>: ${player.weapons[0].name} / ${player.weapons[1].name}</p>`).join('')
+    );
   },
 
   showWeaponSwapSelector(playerIdx, cardIndex, targetIdx) {
     const player = this.state.players[playerIdx];
     const target = this.state.players[targetIdx];
-
-    if (!player.weapons.some(Boolean) || !target.weapons.some(Boolean)) {
-      this.showModal(`
-        <h3>双方都需要已有武器</h3>
-        <p class="modal-copy">等双方至少抽到 1 把武器后，再使用交换类卡牌。</p>
-        <button class="btn btn-primary" onclick="App.openCardUseForPlayer(${playerIdx})">返回</button>
-      `);
-      return;
-    }
 
     const combinations = [];
     player.weapons.forEach((myWeapon, mySlot) => {
@@ -665,6 +1254,11 @@ const App = {
       });
     });
 
+    if (!combinations.length) {
+      this.showCardPhaseResult('暂时不能使用', '<p>双方都需要至少有一把武器，才能进行交换。</p>');
+      return;
+    }
+
     this.showModal(`
       <h3>选择要交换的武器</h3>
       <div class="swap-grid">
@@ -678,7 +1272,7 @@ const App = {
           </button>
         `).join('')}
       </div>
-      <button class="btn btn-secondary" onclick="App.openCardUseForPlayer(${playerIdx})">取消</button>
+      <button class="btn btn-secondary" onclick="App.renderCardPhaseTurn()">返回当前回合</button>
     `);
   },
 
@@ -695,199 +1289,43 @@ const App = {
     this.renderPlayerStatusCards();
     this.syncRoundButtons();
     this.saveState();
-    this.showModal(`
-      <h3>交换完成</h3>
-      <div class="result-summary">
+    this.showCardPhaseResult(
+      '交换完成',
+      `
         <p>${player.name} 获得 <strong>${targetWeapon.name}</strong></p>
         <p>${target.name} 获得 <strong>${myWeapon.name}</strong></p>
-      </div>
-      <button class="btn btn-primary" onclick="App.closeModal()">确认</button>
-    `);
+      `
+    );
   },
 
-  showSwapAllUI(playerIdx, cardIndex) {
-    const players = this.state.players;
-    const weaponPairs = players.map(player => player.weapons.map(weapon => weapon ? { ...weapon } : null));
-    const shuffled = [...weaponPairs].sort(() => Math.random() - 0.5);
+  advanceCardPhase() {
+    if (!this.cardPhaseSession) return;
 
-    players.forEach((player, index) => {
-      player.weapons = shuffled[index];
-    });
-
-    players[playerIdx].cards.splice(cardIndex, 1);
-    this.renderPlayerStatusCards();
-    this.syncRoundButtons();
-    this.saveState();
-
-    this.showModal(`
-      <h3>${players[playerIdx].name} 发动全队武器互换</h3>
-      <p class="modal-copy">本次效果按随机重分配处理。</p>
-      <div class="result-summary">
-        ${players.map(player => `
-          <p><strong>${player.name}</strong>: ${(player.weapons[0] && player.weapons[1])
-            ? `${player.weapons[0].name} / ${player.weapons[1].name}`
-            : '暂无完整武器组'}</p>
-        `).join('')}
-      </div>
-      <button class="btn btn-primary" onclick="App.closeModal()">确认</button>
-    `);
-  },
-
-  startWeaponSpin() {
-    if (this.state.wheelMode === 'simultaneous') {
-      this.spinAllSimultaneous();
+    this.cardPhaseSession.step++;
+    if (this.cardPhaseSession.step >= this.cardPhaseSession.order.length) {
+      this.finishCardPhase();
       return;
     }
 
-    this.currentSpinPlayer = 0;
-    this.currentSpinSlot = 0;
-    this.state.spinState = {
-      playerIndex: 0,
-      slotIndex: 0,
-    };
-    this.renderWeaponDrawScreen();
+    this.renderCardPhaseTurn();
   },
 
-  renderWeaponDrawScreen() {
-    while (this.currentSpinPlayer < this.state.players.length) {
-      const p = this.state.players[this.currentSpinPlayer];
-      if (p.roundEffects.includes('melee_only')) {
-        this.currentSpinPlayer++;
-        this.currentSpinSlot = 0;
-        continue;
-      }
-      break;
-    }
-
-    const player = this.state.players[this.currentSpinPlayer];
-    if (!player) {
-      this.afterAllWeaponsDrawn();
-      return;
-    }
-
-    const map = getMapById(this.state.map);
-    const slotLabel = this.currentSpinSlot === 0 ? '第 1 把 · 主武器' : '第 2 把 · 副武器';
-    const historyHtml = player.weapons
-      .map((weapon, slotIndex) => {
-        if (!weapon) return '';
-        const slotName = slotIndex === 0 ? '主武器' : '副武器';
-        return `
-          <div class="draw-result-display">
-            <div class="result-weapon">${slotName}: ${weapon.name}</div>
-            <div class="result-info">
-              <span>${WEAPON_TYPES[weapon.type].name}</span>
-            </div>
-          </div>
-        `;
-      })
-      .join('');
-
-    document.getElementById('draw-map-chip').textContent = map.shortName;
-    document.getElementById('draw-order-chip').textContent = `${player.name} · ${this.currentSpinPlayer + 1}/${this.state.players.length}`;
-    document.getElementById('draw-player-name').textContent = player.name;
-    document.getElementById('draw-subtitle').textContent = slotLabel;
-    document.getElementById('draw-history').innerHTML = historyHtml;
-
-    WeaponDraw.init(this.getWeightedPool(), result => {
-      this.onWeaponResult(result);
-    });
-
-    const button = document.getElementById('btn-draw');
-    button.textContent = '抽取！';
-    button.onclick = () => WeaponDraw.draw();
-
-    this.state.spinState = {
-      playerIndex: this.currentSpinPlayer,
-      slotIndex: this.currentSpinSlot,
-    };
-
-    this.showView('view-weapon-draw', false);
-    this.saveState();
-  },
-
-  onWeaponResult(weapon) {
-    const player = this.state.players[this.currentSpinPlayer];
-    player.weapons[this.currentSpinSlot] = { ...weapon };
-
-    if (this.currentSpinSlot === 0) {
-      this.currentSpinSlot = 1;
-    } else {
-      this.currentSpinPlayer++;
-      this.currentSpinSlot = 0;
-    }
-
-    this.state.spinState = {
-      playerIndex: this.currentSpinPlayer,
-      slotIndex: this.currentSpinSlot,
-    };
-    this.saveState();
-
-    const button = document.getElementById('btn-draw');
-    if (this.currentSpinPlayer >= this.state.players.length) {
-      button.textContent = '全员抽取完毕！';
-      button.onclick = () => this.afterAllWeaponsDrawn();
-      return;
-    }
-
-    button.textContent = this.currentSpinSlot === 0 ? `下一位: ${this.state.players[this.currentSpinPlayer].name}` : '继续抽副武器';
-    button.onclick = () => this.renderWeaponDrawScreen();
-  },
-
-  spinAllSimultaneous() {
-    const takenIds = [];
-
-    this.state.players.forEach(player => {
-      if (player.roundEffects.includes('melee_only')) return;
-      player.weapons[0] = this.drawWeaponFromTaken(takenIds);
-      player.weapons[1] = this.drawWeaponFromTaken(takenIds);
-    });
-
-    this.afterAllWeaponsDrawn();
-
-    this.showModal(`
-      <h3>同时抽取完成</h3>
-      <div class="result-summary">
-        ${this.state.players.map(player => {
-          if (player.roundEffects.includes('melee_only')) return `<p><strong>${player.name}</strong>: 近战挑战 👊</p>`;
-          return `<p><strong>${player.name}</strong>: ${player.weapons[0]?.name || '无'} / ${player.weapons[1]?.name || '无'}</p>`;
-        }).join('')}
-      </div>
-      <button class="btn btn-primary" onclick="App.closeModal()">确认</button>
-    `);
-  },
-
-  afterAllWeaponsDrawn() {
-    this.renderRoundScreen();
-    this.showView('view-round', false);
-    this.saveState();
-  },
-
-  spinScopes() {
-    this.state.players.forEach(player => {
-      player.scope = weightedRandom(SCOPES);
-    });
-
+  finishCardPhase() {
+    this.cardPhaseSession = null;
+    this.state.cardPhaseCompleted = true;
     this.renderRoundScreen();
     this.saveState();
-
-    this.showModal(`
-      <h3>瞄准镜抽取结果</h3>
-      <div class="result-summary">
-        ${this.state.players.map(player => `
-          <p><strong>${player.name}</strong>: ${this.getPlayerScopeLabel(player)}</p>
-        `).join('')}
-      </div>
-      <button class="btn btn-primary" onclick="App.closeModal()">确认</button>
-    `);
+    this.closeModal();
   },
 
   getPlayerRestrictionSummary(player) {
     const details = [];
 
-    if (player.roundEffects.includes('melee_only')) details.push('本局近战挑战，计分补偿 ×4');
-    if (player.roundEffects.includes('no_scope')) details.push('4 倍以上倍镜禁用');
+    if (player.roundEffects.includes('melee_only')) details.push('本局只能近战，计分补偿 ×4');
+    if (player.roundEffects.includes('no_scope')) details.push('4倍以上倍镜禁用');
     if (player.roundEffects.includes('no_meds')) details.push('饮料和止痛药禁用');
     if (player.activePunishment) details.push(`惩罚: ${player.activePunishment.name} · ${player.activePunishment.description}`);
+    details.push(...this.getPlayerActiveCardLabels(player));
 
     return details;
   },
@@ -900,12 +1338,17 @@ const App = {
     const container = document.getElementById('loadout-display');
     container.innerHTML = this.state.players.map(player => {
       const restrictions = this.getPlayerRestrictionSummary(player);
+      const scopeInfo = this.getPlayerScopeInfo(player);
       return `
         <div class="loadout-player">
           <div class="player-name">${player.name}</div>
           ${player.weapons[0] ? `<div class="loadout-weapon"><span>${player.weapons[0].name}</span><span class="type-badge">${WEAPON_TYPES[player.weapons[0].type].name}</span></div>` : ''}
           ${player.weapons[1] ? `<div class="loadout-weapon"><span>${player.weapons[1].name}</span><span class="type-badge">${WEAPON_TYPES[player.weapons[1].type].name}</span></div>` : ''}
-          ${player.scope ? `<span class="loadout-scope">${this.getPlayerScopeLabel(player)}</span>` : ''}
+          ${scopeInfo.length ? `
+            <div class="scope-list">
+              ${scopeInfo.map(scope => `<span class="scope-badge ${scope.className}">${scope.label}</span>`).join('')}
+            </div>
+          ` : ''}
           ${restrictions.length ? `<div class="loadout-stack">${restrictions.map(item => `<span class="effect-tag">${item}</span>`).join('')}</div>` : ''}
         </div>
       `;
@@ -918,7 +1361,14 @@ const App = {
       });
     });
 
-    document.getElementById('active-effects').innerHTML = activeEffects.map(item => `<span class="effect-tag">${item}</span>`).join('');
+    const globalNotes = this.state.players.some(player => player.scopes.length)
+      ? [`瞄准镜规则：${SCOPE_FALLBACK_RULE}`]
+      : [];
+
+    document.getElementById('active-effects').innerHTML = [
+      ...activeEffects.map(item => `<span class="effect-tag">${item}</span>`),
+      ...globalNotes.map(item => `<span class="effect-tag effect-tag-wide">${item}</span>`),
+    ].join('');
     document.getElementById('loadout-subtitle').textContent = `${map.name} · ${this.getModeLabel()} · 装备锁定后请按本局限制进行游戏。`;
 
     this.showView('view-loadout', false);
@@ -950,8 +1400,8 @@ const App = {
     if (this.state.lastRoundSnapshot && this.state.lastRoundSnapshot.round === this.state.currentRound) {
       inputs.style.display = 'none';
       button.style.display = 'none';
-      animation.style.display = 'block';
-      animation.innerHTML = this.state.lastRoundSnapshot.animationHtml;
+      animation.style.display = 'none';
+      animation.innerHTML = '';
       ranking.style.display = 'block';
       ranking.innerHTML = this.state.lastRoundSnapshot.rankingHtml;
       this.renderPendingRewardCards();
@@ -982,11 +1432,14 @@ const App = {
         tail: result.tail,
         finalScore: result.finalScore,
         op: result.op ? { op: result.op.op, label: result.op.label } : null,
-        afterOp: result.afterOp,
+        rawAfterOp: result.rawAfterOp,
+        afterOp: result.afterShield,
         weaponType: result.weaponType,
         weaponName: result.weaponName,
         doubleCount: result.doubleCount || 0,
         meleeMultiplier: result.meleeMultiplier || 1,
+        shieldSaved: result.shieldSaved || false,
+        computed: result.computed,
         thiefStolen: result.thiefStolen || 0,
         thiefFrom: result.thiefFrom || null,
         swapped: result.swapped || null,
@@ -1004,16 +1457,21 @@ const App = {
   captureScoringSnapshot() {
     this.state.lastRoundSnapshot = {
       round: this.state.currentRound,
-      animationHtml: document.getElementById('scoring-animation').innerHTML,
+      animationHtml: '',
       rankingHtml: document.getElementById('round-ranking').innerHTML,
     };
   },
 
   setPendingRewards(sortedResults) {
+    if (this.state.currentRound >= this.state.totalRounds) {
+      this.state.pendingRewardPlayers = [];
+      return;
+    }
+
     const topPlayer = sortedResults[0].player;
     const bottomPlayer = sortedResults[sortedResults.length - 1].player;
-
     const rewardPlayerIndexes = [this.state.players.indexOf(topPlayer), this.state.players.indexOf(bottomPlayer)];
+
     this.state.pendingRewardPlayers = rewardPlayerIndexes.map(playerIndex => {
       const player = this.state.players[playerIndex];
       return {
@@ -1033,6 +1491,7 @@ const App = {
     if (!entries.length) {
       area.style.display = 'none';
       nextButton.style.display = 'block';
+      nextButton.textContent = this.state.currentRound >= this.state.totalRounds ? '查看最终排名' : '下一局';
       return;
     }
 
@@ -1043,7 +1502,7 @@ const App = {
     desc.className = 'reward-desc';
     desc.innerHTML = entries
       .map(entry => `<strong>${this.state.players[entry.playerIndex].name}</strong>`)
-      .join(' 和 ') + ' 抽取事件卡';
+      .join(' 和 ') + ' 抽取道具卡';
     container.appendChild(desc);
 
     const grid = document.createElement('div');
@@ -1077,10 +1536,7 @@ const App = {
 
     const allDone = entries.every(entry => entry.status !== 'pending');
     nextButton.style.display = allDone ? 'block' : 'none';
-    if (allDone) {
-      const isLast = this.state.currentRound >= this.state.totalRounds;
-      nextButton.textContent = isLast ? '结束本轮' : '下一局';
-    }
+    nextButton.textContent = allDone ? '下一局' : '等待抽卡完成';
     this.saveState();
   },
 
@@ -1093,116 +1549,17 @@ const App = {
       return;
     }
 
-    this.showPunishment();
-  },
-
-  showPunishment() {
-    const players = this.state.players;
-    const weights = players.map(p => {
-      const base = 25;
-      const reduction = (p.punishmentDrawCount || 0) * 8;
-      return Math.max(2, base - reduction);
-    });
-    const totalWeight = weights.reduce((s, w) => s + w, 0);
-    let rand = Math.random() * totalWeight;
-    let chosenIndex = 0;
-    for (let i = 0; i < weights.length; i++) {
-      rand -= weights[i];
-      if (rand <= 0) { chosenIndex = i; break; }
-    }
-
-    const chosen = players[chosenIndex];
-    chosen.punishmentDrawCount = (chosen.punishmentDrawCount || 0) + 1;
-
-    const punishment = Cards.drawPunishmentCard();
-    chosen.activePunishment = punishment;
-    chosen.punishmentExpiresAfterRound = this.state.currentRound + 1;
-
-    const probabilities = weights.map((w, i) => ({
-      name: players[i].name,
-      pct: Math.round(w / totalWeight * 100),
-    }));
-
-    this.state.pendingPunishment = {
-      playerIndex: chosenIndex,
-      punishment,
-      rerolled: false,
-      cost: 0,
-      probabilities,
-    };
-
-    this.renderPunishmentView();
-  },
-
-  renderPunishmentView() {
-    const data = this.state.pendingPunishment;
-    if (!data) return;
-
-    const player = this.state.players[data.playerIndex];
-
-    document.getElementById('punishment-phase-chip').textContent = `第 ${this.state.currentRound} 局结束`;
-    const isLast = this.state.currentRound >= this.state.totalRounds;
-    document.getElementById('punishment-round-chip').textContent = isLast ? '最后一局' : `下一局生效`;
-
-    document.getElementById('phase-summary').innerHTML = '';
-
-    document.getElementById('punishment-area').innerHTML = `
-      <p class="punishment-lead"><strong>${player.name}</strong> 被随机选中！</p>
-      ${Cards.renderPunishmentCard(data.punishment)}
-      ${!data.rerolled ? `
-        <button class="btn btn-reroll" onclick="App.rerollPunishment()">
-          扣 3 分重抽一次
-        </button>
-      ` : `<p class="punishment-note">已重抽，扣除 3 分</p>`}
-    `;
-
-    this.showView('view-punishment', false);
-    this.saveState();
-  },
-
-  rerollPunishment() {
-    const data = this.state.pendingPunishment;
-    if (!data || data.rerolled) return;
-
-    const player = this.state.players[data.playerIndex];
-    const cost = 3;
-    let newPunishment = Cards.drawPunishmentCard();
-    let guard = 0;
-
-    while (newPunishment.id === data.punishment.id && guard < 8) {
-      newPunishment = Cards.drawPunishmentCard();
-      guard++;
-    }
-
-    this.addScoreAdjustment(player, this.state.currentRound - 1, {
-      label: '惩罚重抽',
-      amount: -cost,
-    });
-
-    player.activePunishment = newPunishment;
-    player.punishmentExpiresAfterRound = this.state.currentRound + 1;
-    data.punishment = newPunishment;
-    data.rerolled = true;
-    data.cost = cost;
-
-    this.recalculateTotals();
-    this.renderPunishmentView();
-  },
-
-  afterPunishment() {
-    this.state.pendingPunishment = null;
-
-    if (this.state.currentRound >= this.state.totalRounds) {
-      this.renderFinal();
-      return;
-    }
-
     this.state.currentRound++;
-    this.enterRound({ fresh: true });
+    this.prepareRoundSetup();
+  },
+
+  getRoundMapTimeline() {
+    return this.state.roundHistory
+      .sort((left, right) => left.round - right.round)
+      .map(entry => getMapById(entry.map)?.name.split(' ')[0] || entry.map);
   },
 
   buildFinalSummary(sortedPlayers) {
-    const map = getMapById(this.state.map);
     const bestRound = [];
 
     this.state.players.forEach(player => {
@@ -1218,9 +1575,12 @@ const App = {
     bestRound.sort((left, right) => right.score - left.score);
     const highestSingle = bestRound[0];
     const winner = sortedPlayers[0];
+    const mapTimeline = this.getRoundMapTimeline();
+    const overviewLabel = `${this.state.totalRounds} 局 · ${this.getModeLabel()}`;
+    const routeLabel = mapTimeline.join(' → ') || '未开始';
 
     return `
-      <div class="summary-card">
+      <div class="summary-card summary-card-hero">
         <span>冠军</span>
         <strong>${winner.name}</strong>
         <em>${winner.totalScore} 分</em>
@@ -1231,14 +1591,9 @@ const App = {
         <em>${highestSingle ? `第 ${highestSingle.round} 局 · ${highestSingle.score} 分` : '暂无记录'}</em>
       </div>
       <div class="summary-card">
-        <span>地图</span>
-        <strong>${map.shortName}</strong>
-        <em>${map.vibe}</em>
-      </div>
-      <div class="summary-card">
-        <span>局数</span>
-        <strong>${this.state.totalRounds} 局</strong>
-        <em>${this.getModeLabel()}</em>
+        <span>对局概览</span>
+        <strong>${overviewLabel}</strong>
+        <em>${routeLabel}</em>
       </div>
     `;
   },
@@ -1269,9 +1624,10 @@ const App = {
   renderFinal() {
     this.recalculateTotals();
 
-    const map = getMapById(this.state.map);
     const sortedPlayers = [...this.state.players].sort((left, right) => right.totalScore - left.totalScore);
-    document.getElementById('final-map-chip').textContent = map.shortName;
+    const mapTimeline = this.getRoundMapTimeline();
+
+    document.getElementById('final-map-chip').textContent = mapTimeline.length > 1 ? '多地图轮换' : (mapTimeline[0] || '未记录地图');
     document.getElementById('final-rounds-chip').textContent = `${this.state.totalRounds} 局制`;
     document.getElementById('final-summary').innerHTML = this.buildFinalSummary(sortedPlayers);
 
@@ -1292,7 +1648,7 @@ const App = {
     });
     tableHtml += '</tr></thead><tbody>';
 
-    const totalRounds = Math.max(...this.state.players.map(player => player.scores.length));
+    const totalRounds = Math.max(...this.state.players.map(player => player.scores.length), 0);
     for (let roundIndex = 0; roundIndex < totalRounds; roundIndex++) {
       tableHtml += `<tr><td>第 ${roundIndex + 1} 局</td>`;
       this.state.players.forEach(player => {
@@ -1307,7 +1663,12 @@ const App = {
     });
     tableHtml += '</tr></tbody></table>';
 
-    document.getElementById('score-details').innerHTML = tableHtml;
+    document.getElementById('score-details').innerHTML = `
+      <section class="score-details-panel">
+        <div class="score-details-title">对局详情</div>
+        <div class="score-details-table">${tableHtml}</div>
+      </section>
+    `;
     this.showView('view-final', false);
     this.saveState();
   },
@@ -1317,9 +1678,9 @@ const App = {
     this.state = this.createInitialState();
     this.currentSpinPlayer = 0;
     this.currentSpinSlot = 0;
-    this.renderMapSelector();
+    this.cardPhaseSession = null;
     this.populateSetupForm();
-    this.renderMapPreview();
+    this.renderPlayerLibrary();
     this.showView('view-setup', false);
   },
 
@@ -1336,6 +1697,10 @@ const App = {
       case 'view-initial-cards':
         this.renderInitialCards();
         this.showView('view-initial-cards', false);
+        break;
+
+      case 'view-map-select':
+        this.renderRoundMapSelection();
         break;
 
       case 'view-loadout':
@@ -1356,9 +1721,15 @@ const App = {
         break;
 
       case 'view-weapon-draw':
-        this.currentSpinPlayer = this.state.spinState?.playerIndex || 0;
-        this.currentSpinSlot = this.state.spinState?.slotIndex || 0;
-        this.renderWeaponDrawScreen();
+        this.state.players.forEach(p => { p.weapons = [null, null]; });
+        this.currentDrawSlot = 0;
+        this.renderWeaponDrawPage();
+        setTimeout(() => this.drawAllWeapons(), 450);
+        break;
+
+      case 'view-scope-draw':
+        this.state.players.forEach(p => { p.scopes = []; });
+        this.spinScopes();
         break;
 
       case 'view-round':
@@ -1372,31 +1743,33 @@ const App = {
 
   loadState() {
     const savedState = localStorage.getItem(STORAGE_KEY);
-    if (!savedState) return;
+    if (!savedState) return false;
 
     try {
       const parsed = JSON.parse(savedState);
       const hydrated = this.hydrateState(parsed);
 
       if (!hydrated.players.length || hydrated.currentRound <= 0) {
-        return;
+        return false;
       }
 
       const resume = confirm('检测到未完成的游戏，是否继续？');
       if (!resume) {
         localStorage.removeItem(STORAGE_KEY);
-        return;
+        return false;
       }
 
       this.state = hydrated;
       this.currentSpinPlayer = this.state.spinState?.playerIndex || 0;
       this.currentSpinSlot = this.state.spinState?.slotIndex || 0;
-      this.renderMapSelector();
       this.populateSetupForm();
-      this.renderMapPreview();
+      this.renderPlayerLibrary();
+      this.syncTheme();
       this.restoreFromCurrentView();
+      return true;
     } catch (error) {
       localStorage.removeItem(STORAGE_KEY);
+      return false;
     }
   },
 };
@@ -1406,6 +1779,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('modal-overlay').addEventListener('click', event => {
     if (event.target === event.currentTarget) {
+      if (App.cardPhaseSession) {
+        return;
+      }
       App.closeModal();
     }
   });

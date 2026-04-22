@@ -19,40 +19,38 @@ const Scoring = {
 
     if (!valid) return;
 
+    document.getElementById('damage-inputs').style.display = 'none';
     document.getElementById('btn-calculate').style.display = 'none';
     const animationArea = document.getElementById('scoring-animation');
-    animationArea.style.display = 'block';
+    animationArea.style.display = 'none';
     animationArea.innerHTML = '';
 
     const results = state.players.map((player, index) => this.computePlayerScore(player, damages[index]));
-
-    this.animateResults(results, () => {
-      this.applyCardEffects(results);
-      App.recordRoundResults(results);
-      this.showRanking(results);
-      App.captureScoringSnapshot();
-      App.saveState();
-    });
+    this.applyCardEffects(results);
+    App.recordRoundResults(results);
+    this.showRanking(results);
+    App.captureScoringSnapshot();
+    App.saveState();
   },
 
   computePlayerScore(player, damage) {
     const tail = damage % 10;
     const shieldActive = player.activeCards?.includes('shield');
     const doubleCount = player.activeCards?.filter(c => c === 'double').length || 0;
+    const doubleMultiplier = doubleCount > 0 ? Math.pow(2, doubleCount) : 1;
     const isMelee = player.roundEffects?.includes('melee_only');
 
-    const weapon = player.weapons[0] || player.weapons[1];
+    const weapon = isMelee ? null : (player.weapons[0] || player.weapons[1]);
     const weaponType = weapon ? weapon.type : 'AR';
     const ops = OPERATIONS[weaponType];
     const op = weightedRandom(ops);
 
-    let afterOp = op.fn(tail);
-    if (shieldActive && afterOp < tail) afterOp = tail;
-
-    let meleeMultiplier = isMelee ? 4 : 1;
-    let computed = afterOp * meleeMultiplier;
-
-    if (doubleCount > 0) computed *= Math.pow(2, doubleCount);
+    const rawAfterOp = op.fn(tail);
+    const shieldSaved = shieldActive && rawAfterOp < tail;
+    const afterShield = shieldSaved ? tail : rawAfterOp;
+    const meleeMultiplier = isMelee ? 4 : 1;
+    const afterMelee = afterShield * meleeMultiplier;
+    const computed = afterMelee * doubleMultiplier;
 
     const finalScore = Math.round(computed) % 10;
 
@@ -63,51 +61,82 @@ const Scoring = {
       weaponType,
       weaponName: weapon ? weapon.name : '近战',
       op,
-      afterOp,
+      rawAfterOp,
+      afterShield,
+      shieldSaved,
       meleeMultiplier,
       doubleCount,
+      doubleMultiplier,
+      computed,
       finalScore,
     };
   },
 
-  animateResults(results, onDone) {
-    const animationArea = document.getElementById('scoring-animation');
-    let index = 0;
+  getBaseTailScore(result) {
+    return Math.round(result.computed) % 10;
+  },
 
-    const showNext = () => {
-      if (index >= results.length) {
-        setTimeout(onDone, 500);
-        return;
-      }
+  buildProcessLine(result) {
+    const steps = [
+      `<span>尾数 <span class="score-number score-number-inline">${result.tail}</span></span>`,
+      `<span class="score-op ${this.getOpClass(result.op)}">${result.op.op}</span>`,
+      '<span class="score-arrow">→</span>',
+      `<span class="score-number score-number-inline">${result.rawAfterOp}</span>`,
+    ];
 
-      const r = results[index];
-      const card = document.createElement('div');
-      card.className = 'score-step';
+    if (result.shieldSaved) {
+      steps.push(
+        '<span class="score-arrow">→</span>',
+        '<span class="score-op positive">护盾</span>',
+        '<span class="score-arrow">→</span>',
+        `<span class="score-number score-number-inline">${result.afterShield}</span>`,
+      );
+    }
 
-      let html = `<div class="step-player">${r.player.name}<span class="step-damage">伤害 ${r.damage}</span></div>`;
+    if (result.meleeMultiplier > 1) {
+      steps.push(
+        '<span class="score-arrow">→</span>',
+        `<span class="score-op extreme">近战 ×${result.meleeMultiplier}</span>`,
+        '<span class="score-arrow">→</span>',
+        `<span class="score-number score-number-inline">${result.afterShield * result.meleeMultiplier}</span>`,
+      );
+    }
 
-      html += `
-        <div class="step-detail">
-          <span>尾数 <span class="score-number">${r.tail}</span></span>
-          <span class="score-op ${this.getOpClass(r.op)}">${r.op.op}</span>
-          <span class="score-arrow">→</span>
-          <span class="score-number">${r.afterOp}</span>
-          ${r.meleeMultiplier > 1 ? `<span class="score-arrow">×${r.meleeMultiplier}(近战)</span>` : ''}
-          ${r.doubleCount > 0 ? `<span class="score-op extreme">×${Math.pow(2, r.doubleCount)}</span>` : ''}
-          <span class="score-arrow">→ 取尾数 →</span>
-          <span class="score-number">${r.finalScore}</span>
-        </div>
-      `;
+    if (result.doubleCount > 0) {
+      steps.push(
+        '<span class="score-arrow">→</span>',
+        `<span class="score-op extreme">道具 ×${result.doubleMultiplier}</span>`,
+        '<span class="score-arrow">→</span>',
+        `<span class="score-number score-number-inline">${result.computed}</span>`,
+      );
+    }
 
-      html += `<div class="step-final">得分: ${r.finalScore}</div>`;
-      card.innerHTML = html;
-      animationArea.appendChild(card);
+    steps.push(
+      '<span class="score-arrow">→</span>',
+      '<span>取尾数</span>',
+      '<span class="score-arrow">→</span>',
+      `<span class="score-number score-number-inline">${this.getBaseTailScore(result)}</span>`,
+    );
 
-      index++;
-      setTimeout(showNext, 800);
-    };
+    return steps.join('');
+  },
 
-    showNext();
+  buildResultNotes(result) {
+    const notes = [];
+
+    if (result.thiefStolen) {
+      notes.push(`<span class="rank-note positive">偷分 +${result.thiefStolen}${result.thiefFrom ? ` · ${result.thiefFrom}` : ''}</span>`);
+    }
+
+    if (result.swapped) {
+      notes.push(`<span class="rank-note special">互换 · ${result.swapped}</span>`);
+    }
+
+    if (result.duplicatePenalty) {
+      notes.push(`<span class="rank-note warning">撞分 -${result.duplicatePenalty}</span>`);
+    }
+
+    return notes.join('');
   },
 
   getOpClass(op) {
@@ -176,33 +205,28 @@ const Scoring = {
     const rankingDiv = document.getElementById('round-ranking');
     rankingDiv.style.display = 'block';
 
-    rankingDiv.innerHTML = '<h3>本局排名</h3>' + sorted.map((result, index) => {
+    rankingDiv.innerHTML = '<h3>本局排名</h3><div class="round-ranking-list">' + sorted.map((result, index) => {
       const rank = index + 1;
-      let extra = '';
-
-      if (result.duplicatePenalty) {
-        extra += ` <span class="rank-extra warning">撞分 -${result.duplicatePenalty}</span>`;
-      }
-
-      if (result.thiefStolen) {
-        extra += ` <span class="rank-extra warning">偷了 ${result.thiefFrom} ${result.thiefStolen} 分</span>`;
-      }
-
-      if (result.swapped) {
-        extra += ` <span class="rank-extra special">和 ${result.swapped} 互换</span>`;
-      }
+      const notes = this.buildResultNotes(result);
 
       return `
         <div class="rank-row">
           <div class="rank-position rank-${rank}">${rank}</div>
-          <div class="rank-name">${result.player.name}${extra}</div>
-          <div>
+          <div class="rank-content">
+            <div class="rank-name-line">
+              <div class="rank-name">${result.player.name}</div>
+              <div class="rank-damage">伤害 ${result.damage}</div>
+            </div>
+            <div class="rank-process">${this.buildProcessLine(result)}</div>
+            ${notes ? `<div class="rank-notes">${notes}</div>` : ''}
+          </div>
+          <div class="rank-score-block">
             <div class="rank-score">${result.finalScore}</div>
             <div class="rank-detail">总分 ${result.player.totalScore}</div>
           </div>
         </div>
       `;
-    }).join('');
+    }).join('') + '</div>';
 
     App.setPendingRewards(sorted);
     App.renderPendingRewardCards();

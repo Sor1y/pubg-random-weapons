@@ -1,58 +1,96 @@
 const WeaponDraw = {
-  weapons: [],
-  onResult: null,
   isDrawing: false,
+  currentGridId: null,
 
-  init(weapons, onResult) {
-    this.weapons = weapons;
-    this.onResult = onResult;
-    this.isDrawing = false;
-    const card = document.getElementById('draw-card');
-    card.className = 'draw-card';
-    document.getElementById('draw-weapon-name').textContent = '?';
-    document.getElementById('draw-weapon-info').textContent = '点击下方按钮抽取';
+  renderGrid(containerId, players, label) {
+    this.currentGridId = containerId;
+    const grid = document.getElementById(containerId);
+    grid.innerHTML = players.map((p, i) => {
+      const existing = label === 'sub' ? (p.weapons[0] ? `<div class="draw-slot-sub">主: ${p.weapons[0].name}</div>` : '') : '';
+      return `
+        <div class="draw-slot" data-slot-index="${i}">
+          <div class="draw-slot-name">${p.name}</div>
+          <div class="draw-slot-card" data-role="card">
+            <div class="draw-slot-weapon" data-role="name">?</div>
+            <div class="draw-slot-info" data-role="info"></div>
+          </div>
+          ${existing}
+        </div>
+      `;
+    }).join('');
   },
 
-  draw() {
-    if (this.isDrawing || this.weapons.length === 0) return;
+  getSlotElements(index) {
+    const grid = this.currentGridId ? document.getElementById(this.currentGridId) : null;
+    if (!grid) return { card: null, name: null, info: null };
+    const slot = grid.querySelector(`[data-slot-index="${index}"]`);
+    if (!slot) return { card: null, name: null, info: null };
+    return {
+      card: slot.querySelector('[data-role="card"]'),
+      name: slot.querySelector('[data-role="name"]'),
+      info: slot.querySelector('[data-role="info"]'),
+    };
+  },
+
+  drawAll(pools, onAllDone) {
+    if (this.isDrawing) return;
     this.isDrawing = true;
 
-    const result = weightedRandom(this.weapons);
-    const nameEl = document.getElementById('draw-weapon-name');
-    const infoEl = document.getElementById('draw-weapon-info');
-    const card = document.getElementById('draw-card');
-    const btn = document.getElementById('btn-draw');
+    const count = pools.length;
+    const results = pools.map(pool => weightedRandom(pool));
+    let finished = 0;
 
-    btn.disabled = true;
-    btn.textContent = '抽取中...';
-    card.className = 'draw-card drawing';
-
-    let iteration = 0;
-    const totalIterations = 30 + Math.floor(Math.random() * 10);
-
-    const cycle = () => {
-      const rw = this.weapons[Math.floor(Math.random() * this.weapons.length)];
-      nameEl.textContent = rw.name;
-      infoEl.innerHTML = `<span>${WEAPON_TYPES[rw.type].name}</span>`;
-
-      iteration++;
-
-      if (iteration >= totalIterations) {
-        nameEl.textContent = result.name;
-        infoEl.innerHTML = `<span>${WEAPON_TYPES[result.type].name}</span>`;
-        card.className = 'draw-card result';
-        this.isDrawing = false;
-        btn.disabled = false;
-        btn.textContent = '抽取！';
-        if (this.onResult) this.onResult(result);
+    pools.forEach((pool, i) => {
+      const { card: cardEl, name: nameEl, info: infoEl } = this.getSlotElements(i);
+      if (!nameEl || !cardEl) {
+        finished++;
+        if (finished >= count) {
+          this.isDrawing = false;
+          if (onAllDone) onAllDone(results);
+        }
         return;
       }
 
-      const progress = iteration / totalIterations;
-      const delay = 20 + progress * progress * 260;
-      setTimeout(cycle, delay);
-    };
+      cardEl.className = 'draw-slot-card drawing';
+      const totalIter = 25 + Math.floor(Math.random() * 8);
+      const staggerDelay = i * 400;
 
-    cycle();
+      setTimeout(() => {
+        let iter = 0;
+        const cycle = () => {
+          const rw = pool[Math.floor(Math.random() * pool.length)];
+          nameEl.textContent = rw.name || rw.value || '?';
+          if (rw.type && WEAPON_TYPES[rw.type]) {
+            infoEl.textContent = WEAPON_TYPES[rw.type].name;
+          } else {
+            infoEl.textContent = '';
+          }
+
+          iter++;
+          if (iter >= totalIter) {
+            const result = results[i];
+            nameEl.textContent = result.name || result.value || '?';
+            if (result.type && WEAPON_TYPES[result.type]) {
+              infoEl.textContent = WEAPON_TYPES[result.type].name;
+            } else {
+              infoEl.textContent = typeof getScopeDisplayName === 'function' ? getScopeDisplayName(result) : (result.name || '');
+            }
+            cardEl.className = 'draw-slot-card result';
+
+            finished++;
+            if (finished >= count) {
+              this.isDrawing = false;
+              if (onAllDone) onAllDone(results);
+            }
+            return;
+          }
+
+          const progress = iter / totalIter;
+          const delay = 25 + progress * progress * 240;
+          setTimeout(cycle, delay);
+        };
+        cycle();
+      }, staggerDelay);
+    });
   },
 };

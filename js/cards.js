@@ -1,10 +1,35 @@
 const Cards = {
-  drawEventCard() {
-    return weightedRandom(EVENT_CARDS);
+  drawEventCard(state = typeof App !== 'undefined' ? App.state : null) {
+    const bucket = state?.drawHistory?.event;
+    const card = drawBalancedWeightedItem(EVENT_CARDS, bucket, {
+      recentWindow: DRAW_BALANCE.event.recentWindow,
+      recentPenalties: DRAW_BALANCE.event.recentPenalties,
+      repeatPenalty: DRAW_BALANCE.event.repeatPenalty,
+      minWeightFactor: DRAW_BALANCE.event.minWeightFactor,
+    });
+
+    if (bucket && card) {
+      rememberBalancedDraw(bucket, card, { recentWindow: DRAW_BALANCE.event.recentWindow });
+    }
+
+    return card;
   },
 
-  drawPunishmentCard() {
-    return PUNISHMENT_CARDS[Math.floor(Math.random() * PUNISHMENT_CARDS.length)];
+  drawPunishmentCard(state = typeof App !== 'undefined' ? App.state : null, options = {}) {
+    const bucket = state?.drawHistory?.punishment;
+    const card = drawBalancedWeightedItem(PUNISHMENT_CARDS, bucket, {
+      recentWindow: DRAW_BALANCE.punishment.recentWindow,
+      recentPenalties: DRAW_BALANCE.punishment.recentPenalties,
+      repeatPenalty: DRAW_BALANCE.punishment.repeatPenalty,
+      minWeightFactor: DRAW_BALANCE.punishment.minWeightFactor,
+      excludeIds: options.excludeIds || [],
+    });
+
+    if (bucket && card) {
+      rememberBalancedDraw(bucket, card, { recentWindow: DRAW_BALANCE.punishment.recentWindow });
+    }
+
+    return card;
   },
 
   renderCardBack(container, onClick) {
@@ -61,7 +86,7 @@ const Cards = {
   renderCardUseModal(player, allPlayers, onUse, onClose) {
     if (!player.cards || player.cards.length === 0) {
       return `
-        <h3>${player.name} 的手牌</h3>
+        <h3>${player.name} 的道具卡</h3>
         <p style="text-align:center;color:var(--text-muted)">没有可用的卡牌</p>
         <button class="btn btn-secondary" onclick="(${onClose})()">关闭</button>
       `;
@@ -78,7 +103,7 @@ const Cards = {
     `).join('');
 
     return `
-      <h3>${player.name} 的手牌</h3>
+      <h3>${player.name} 的道具卡</h3>
       <div class="modal-card-list">${cardsHtml}</div>
       <button class="btn btn-secondary" onclick="(${onClose})()">不使用，关闭</button>
     `;

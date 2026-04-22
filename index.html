@@ -4,83 +4,117 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PUBG 随机武器挑战</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body data-map="erangel">
   <div id="app" class="app-shell">
 
-    <!-- ========== 1. 设置页 ========== -->
     <section id="view-setup" class="view active">
-      <div class="container">
-        <div class="hero-panel">
-          <div class="hero-kicker">PUBG 四排娱乐小工具</div>
-          <h1 class="title">PUBG 随机武器挑战</h1>
-          <p class="subtitle">卓神是也</p>
+      <div class="view-inner container-home">
+        <header class="setup-header">
+          <div class="setup-brand">
+            <span class="brand-kicker">PUBG · Party Mode</span>
+            <h1 class="title">PUBG 随机武器挑战</h1>
+          </div>
           <div class="hero-tags">
-            <span class="hero-tag">随机de枪械</span>
-            <span class="hero-tag">特殊de卡牌</span>
-            <span class="hero-tag">主人de惩罚</span>
+            <span class="hero-tag">随机枪械</span>
+            <span class="hero-tag">道具卡</span>
+            <span class="hero-tag">惩罚卡</span>
           </div>
+        </header>
+
+        <div class="setup-main">
+          <section class="setup-panel setup-player-panel">
+            <h2>玩家昵称</h2>
+            <div class="player-slot-grid">
+              <div class="player-slot is-active" onclick="App.selectPlayerSlot(0)">
+                <span class="player-slot-index">1号位</span>
+                <input type="text" id="player-1" placeholder="玩家1" maxlength="12" onfocus="App.selectPlayerSlot(0)">
+              </div>
+              <div class="player-slot" onclick="App.selectPlayerSlot(1)">
+                <span class="player-slot-index">2号位</span>
+                <input type="text" id="player-2" placeholder="玩家2" maxlength="12" onfocus="App.selectPlayerSlot(1)">
+              </div>
+              <div class="player-slot" onclick="App.selectPlayerSlot(2)">
+                <span class="player-slot-index">3号位</span>
+                <input type="text" id="player-3" placeholder="玩家3" maxlength="12" onfocus="App.selectPlayerSlot(2)">
+              </div>
+              <div class="player-slot" onclick="App.selectPlayerSlot(3)">
+                <span class="player-slot-index">4号位</span>
+                <input type="text" id="player-4" placeholder="玩家4" maxlength="12" onfocus="App.selectPlayerSlot(3)">
+              </div>
+            </div>
+          </section>
+
+          <section class="setup-panel setup-library-panel">
+            <h2>玩家名单</h2>
+            <div id="player-library-list" class="library-list"></div>
+            <div class="library-input-row">
+              <input type="text" id="roster-name-input" placeholder="新增玩家" maxlength="12">
+              <button class="btn btn-secondary" type="button" onclick="App.addPlayerLibraryName()">新增</button>
+            </div>
+          </section>
         </div>
 
-        <div class="setup-section">
-          <h2>玩家昵称</h2>
-          <div class="player-inputs">
-            <input type="text" id="player-1" placeholder="玩家1" maxlength="12">
-            <input type="text" id="player-2" placeholder="玩家2" maxlength="12">
-            <input type="text" id="player-3" placeholder="玩家3" maxlength="12">
-            <input type="text" id="player-4" placeholder="玩家4" maxlength="12">
-          </div>
-        </div>
-
-        <div class="setup-grid">
-          <div class="setup-section">
-            <h2>选择地图</h2>
-            <div id="map-selector" class="map-grid"></div>
-          </div>
-
-          <div id="map-preview" class="map-preview"></div>
-        </div>
-
-        <div class="setup-section">
-          <h2>游戏设置</h2>
+        <div class="setup-footer">
           <div class="settings-row">
             <label>
-              总局数
+              <span>总局数</span>
               <select id="total-rounds">
-                <option value="3">3局</option>
-                <option value="5" selected>5局</option>
-              </select>
-            </label>
-            <label>
-              转盘模式
-              <select id="wheel-mode">
-                <option value="sequential">轮流转</option>
-                <option value="simultaneous">同时转</option>
+                <option value="3">3 局</option>
+                <option value="5" selected>5 局</option>
               </select>
             </label>
           </div>
+          <button id="btn-start" class="btn btn-primary" onclick="App.startGame()">开始游戏</button>
         </div>
-
-        <button id="btn-start" class="btn btn-primary btn-large" onclick="App.startGame()">开始游戏</button>
       </div>
     </section>
 
-    <!-- ========== 2. 首轮抽卡 ========== -->
     <section id="view-initial-cards" class="view">
-      <div class="container">
+      <div class="view-inner">
         <div class="section-head">
           <h2>首轮抽卡</h2>
-          <p class="subtitle">每人抽 1 张特殊事件卡，可留到后面的关键回合使用。</p>
+          <p class="subtitle">每人抽 1 张道具卡，可留到后面的关键回合使用。但每人卡槽仅可保留两张道具卡。</p>
         </div>
         <div id="initial-cards-area" class="cards-area"></div>
-        <button id="btn-cards-done" class="btn btn-primary btn-large" onclick="App.finishInitialCards()" style="display:none">全员抽卡完毕，进入第 1 局</button>
+        <div class="view-footer">
+          <button id="btn-cards-done" class="btn btn-primary" onclick="App.finishInitialCards()" style="display:none">进入地图选择</button>
+        </div>
       </div>
     </section>
 
-    <!-- ========== 3. 回合主页 ========== -->
+    <section id="view-map-select" class="view">
+      <div class="view-inner container-wide container-map-select">
+        <div class="section-head">
+          <h2>选择本局地图</h2>
+          <p class="subtitle">每局开始前选择地图，地图会影响这一局的专属枪械和枪池。</p>
+          <div class="section-meta section-meta-centered">
+            <div class="info-chip" id="map-pick-round-chip"></div>
+            <div class="info-chip" id="map-pick-mode-chip"></div>
+          </div>
+        </div>
+
+        <div class="setup-grid map-selection-layout">
+          <div class="setup-section map-selector-panel">
+            <h2>地图池</h2>
+            <div id="round-map-selector" class="map-grid"></div>
+          </div>
+
+          <div id="round-map-preview" class="map-preview map-preview-panel"></div>
+        </div>
+
+        <div class="view-footer">
+          <button class="btn btn-primary" onclick="App.confirmRoundMap()">确认地图并抽惩罚卡</button>
+        </div>
+      </div>
+    </section>
+
     <section id="view-round" class="view">
-      <div class="container">
+      <div class="view-inner">
         <div class="view-topbar">
           <div class="info-chip" id="round-map-chip"></div>
           <div class="info-chip" id="round-mode-chip"></div>
@@ -98,107 +132,124 @@
 
         <div id="player-status-cards" class="player-cards-grid"></div>
 
-        <div class="round-actions">
-          <button id="btn-use-cards" class="btn btn-secondary" onclick="App.openCardUse()">使用卡牌</button>
-          <button id="btn-spin-weapons" class="btn btn-primary" onclick="App.startWeaponSpin()">抽武器</button>
-          <button id="btn-spin-scopes" class="btn btn-secondary" onclick="App.spinScopes()" disabled>抽瞄准镜</button>
-          <button id="btn-ready" class="btn btn-accent" onclick="App.showLoadout()" disabled>全员就绪，开打！</button>
+        <div class="view-footer round-actions">
+          <button id="btn-use-cards" class="btn btn-secondary" onclick="App.openCardUse()" disabled>按顺序使用道具卡</button>
+          <button id="btn-ready" class="btn btn-accent" onclick="App.showLoadout()" disabled>全员就绪，开打</button>
         </div>
       </div>
     </section>
 
-    <!-- ========== 4. 武器抽取 ========== -->
     <section id="view-weapon-draw" class="view">
-      <div class="container">
-        <div class="view-topbar">
-          <div class="info-chip" id="draw-map-chip"></div>
-          <div class="info-chip" id="draw-order-chip"></div>
+      <div class="view-inner">
+        <div class="section-head">
+          <h2 id="draw-title">全员武器抽取</h2>
+          <p class="subtitle" id="draw-subtitle">正在随机主武器</p>
         </div>
-        <h2>武器抽取 — <span id="draw-player-name"></span></h2>
-        <p class="subtitle" id="draw-subtitle">第1把 主武器</p>
-        <div class="draw-container">
-          <div class="draw-card" id="draw-card">
-            <div class="draw-card-inner">
-              <div class="draw-weapon-name" id="draw-weapon-name">?</div>
-              <div class="draw-weapon-info" id="draw-weapon-info">点击下方按钮抽取</div>
-            </div>
-          </div>
+        <div class="draw-grid" id="draw-grid"></div>
+        <div class="view-footer">
+          <button id="btn-draw-all" class="btn btn-primary" disabled>准备抽取...</button>
         </div>
-        <div id="draw-history" class="draw-history"></div>
-        <button id="btn-draw" class="btn btn-primary btn-large" onclick="WeaponDraw.draw()">抽取！</button>
       </div>
     </section>
 
-    <!-- ========== 5. 装备总览 ========== -->
+    <section id="view-scope-draw" class="view">
+      <div class="view-inner">
+        <div class="section-head">
+          <h2>全员瞄准镜抽取</h2>
+          <p class="subtitle" id="scope-draw-subtitle">每人随机两枚瞄准镜</p>
+        </div>
+        <div class="draw-grid" id="scope-draw-grid"></div>
+        <div class="view-footer">
+          <button id="btn-scope-done" class="btn btn-primary" onclick="App.afterScopesDone()">继续</button>
+        </div>
+      </div>
+    </section>
+
     <section id="view-loadout" class="view">
-      <div class="container">
+      <div class="view-inner">
         <div class="view-topbar">
           <div class="info-chip" id="loadout-map-chip"></div>
           <div class="info-chip" id="loadout-round-chip"></div>
         </div>
-        <h2>本局装备总览</h2>
-        <p class="subtitle" id="loadout-subtitle">确认限制、武器和倍镜后就可以出发。</p>
+        <div class="section-head">
+          <h2>本局装备总览</h2>
+          <p class="subtitle" id="loadout-subtitle">确认限制、武器和倍镜后就可以出发。</p>
+        </div>
         <div id="loadout-display" class="loadout-grid"></div>
         <div id="active-effects" class="active-effects"></div>
-        <button class="btn btn-primary btn-large" onclick="App.goToMatch()">出发！开打！</button>
+        <div class="view-footer">
+          <button class="btn btn-primary" onclick="App.goToMatch()">开始游戏</button>
+        </div>
       </div>
     </section>
 
-    <!-- ========== 6. 计分页 ========== -->
     <section id="view-scoring" class="view">
-      <div class="container">
+      <div class="view-inner">
         <div class="view-topbar">
           <div class="info-chip" id="scoring-map-chip"></div>
           <div class="info-chip" id="scoring-round-chip"></div>
         </div>
-        <h2>第 <span id="scoring-round-number">1</span> 局结算</h2>
-        <p class="subtitle">输入每人本局伤害数字，系统会按尾数、枪型和卡牌效果自动结算。</p>
-        <div id="damage-inputs" class="damage-inputs"></div>
-        <button id="btn-calculate" class="btn btn-primary btn-large" onclick="Scoring.calculate()">开始结算</button>
+        <div class="section-head">
+          <h2>第 <span id="scoring-round-number">1</span> 局结算</h2>
+          <p class="subtitle">输入每人本局伤害，系统按尾数、枪型和卡牌效果自动结算。</p>
+        </div>
+        <div class="scoring-body">
+          <div id="damage-inputs" class="damage-inputs"></div>
 
-        <div id="scoring-animation" class="scoring-animation" style="display:none"></div>
-        <div id="round-ranking" class="ranking" style="display:none"></div>
+          <div id="scoring-animation" class="scoring-animation" style="display:none"></div>
+          <div id="round-ranking" class="ranking" style="display:none"></div>
 
-        <div id="post-round-cards" style="display:none">
-          <h3>抽取事件卡</h3>
-          <div id="post-round-card-area"></div>
+          <div id="post-round-cards" style="display:none">
+            <h3>抽取道具卡</h3>
+            <div id="post-round-card-area"></div>
+          </div>
         </div>
 
-        <button id="btn-next-round" class="btn btn-primary btn-large" style="display:none" onclick="App.nextRound()">下一局</button>
+        <div class="view-footer">
+          <button id="btn-calculate" class="btn btn-primary" onclick="Scoring.calculate()">开始结算</button>
+          <button id="btn-next-round" class="btn btn-primary" style="display:none" onclick="App.nextRound()">下一局</button>
+        </div>
       </div>
     </section>
 
-    <!-- ========== 7. 惩罚页 ========== -->
     <section id="view-punishment" class="view">
-      <div class="container">
+      <div class="view-inner">
         <div class="view-topbar">
           <div class="info-chip" id="punishment-phase-chip"></div>
           <div class="info-chip" id="punishment-round-chip"></div>
         </div>
-        <h2>惩罚时间！</h2>
-        <p class="subtitle">阶段总分垫底者抽取 1 张惩罚卡，效果持续下一局。</p>
+        <div class="section-head">
+          <h2>本局惩罚卡</h2>
+          <p class="subtitle">本局开始时随机两名玩家抽惩罚卡，效果立即生效。</p>
+        </div>
         <div id="phase-summary" class="phase-summary"></div>
         <div id="punishment-area" class="punishment-area"></div>
-        <button id="btn-punishment-done" class="btn btn-primary btn-large" onclick="App.afterPunishment()">继续</button>
+        <div class="view-footer">
+          <button id="btn-punishment-done" class="btn btn-primary" onclick="App.afterPunishment()">继续</button>
+        </div>
       </div>
     </section>
 
-    <!-- ========== 8. 终局页 ========== -->
     <section id="view-final" class="view">
-      <div class="container">
+      <div class="view-inner container-wide container-final">
         <div class="view-topbar">
           <div class="info-chip" id="final-map-chip"></div>
           <div class="info-chip" id="final-rounds-chip"></div>
         </div>
-        <h2>最终排名</h2>
+        <div class="section-head">
+          <h2>最终排名</h2>
+        </div>
         <div id="final-summary" class="final-summary"></div>
-        <div id="final-ranking" class="final-ranking"></div>
-        <div id="score-details" class="score-details"></div>
-        <button class="btn btn-primary btn-large" onclick="App.restart()">再来一轮！</button>
+        <div class="final-body">
+          <div id="final-ranking" class="final-ranking"></div>
+          <div id="score-details" class="score-details"></div>
+        </div>
+        <div class="view-footer final-actions">
+          <button class="btn btn-primary" onclick="App.restart()">再来一轮</button>
+        </div>
       </div>
     </section>
 
-    <!-- ========== 卡牌使用弹窗 ========== -->
     <div id="modal-overlay" class="modal-overlay" style="display:none">
       <div class="modal" id="modal-content"></div>
     </div>
