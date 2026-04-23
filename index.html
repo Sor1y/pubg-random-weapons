@@ -13,12 +13,9 @@
   <div id="app" class="app-shell">
 
     <section id="view-setup" class="view active">
-      <div class="view-inner container-home">
+      <div class="view-inner container-home setup-shell">
         <header class="setup-header">
-          <div class="setup-brand">
-            <span class="brand-kicker">PUBG · Party Mode</span>
-            <h1 class="title">PUBG 随机武器挑战</h1>
-          </div>
+          <h1 class="title title-hero">PUBG 随机武器挑战</h1>
           <div class="hero-tags">
             <span class="hero-tag">随机枪械</span>
             <span class="hero-tag">道具卡</span>
@@ -63,10 +60,16 @@
           <div class="settings-row">
             <label>
               <span>总局数</span>
-              <select id="total-rounds">
+              <select id="total-rounds" onchange="App.onTotalRoundsChange()">
                 <option value="3">3 局</option>
                 <option value="5" selected>5 局</option>
+                <option value="7">7 局</option>
+                <option value="custom">自定义</option>
               </select>
+            </label>
+            <label id="total-rounds-custom-wrapper" style="display:none">
+              <span>自定义局数</span>
+              <input type="number" id="total-rounds-custom" min="1" max="20" value="5">
             </label>
           </div>
           <button id="btn-start" class="btn btn-primary" onclick="App.startGame()">开始游戏</button>
@@ -88,27 +91,20 @@
     </section>
 
     <section id="view-map-select" class="view">
-      <div class="view-inner container-wide container-map-select">
+      <div class="view-inner container-wide container-map-reveal">
         <div class="section-head">
-          <h2>选择本局地图</h2>
-          <p class="subtitle">每局开始前选择地图，地图会影响这一局的专属枪械和枪池。</p>
+          <h2>本局地图</h2>
+          <p class="subtitle">系统已为本局随机作战地图，可直接进入下一步。</p>
           <div class="section-meta section-meta-centered">
             <div class="info-chip" id="map-pick-round-chip"></div>
             <div class="info-chip" id="map-pick-mode-chip"></div>
           </div>
         </div>
 
-        <div class="setup-grid map-selection-layout">
-          <div class="setup-section map-selector-panel">
-            <h2>地图池</h2>
-            <div id="round-map-selector" class="map-grid"></div>
-          </div>
-
-          <div id="round-map-preview" class="map-preview map-preview-panel"></div>
-        </div>
+        <div id="round-map-preview" class="map-preview map-preview-panel map-preview-hero"></div>
 
         <div class="view-footer">
-          <button class="btn btn-primary" onclick="App.confirmRoundMap()">确认地图并抽惩罚卡</button>
+          <button class="btn btn-primary" onclick="App.confirmRoundMap()">确认并抽惩罚卡</button>
         </div>
       </div>
     </section>
@@ -160,8 +156,21 @@
         </div>
         <div class="draw-grid" id="scope-draw-grid"></div>
         <div class="view-footer">
-          <button id="btn-scope-done" class="btn btn-primary" onclick="App.afterScopesDone()">继续</button>
+          <button id="btn-scope-done" class="btn btn-primary" onclick="App.afterScopesDone()">进入瞄准镜选择</button>
         </div>
+      </div>
+    </section>
+
+    <section id="view-scope-pick" class="view">
+      <div class="view-inner">
+        <div class="view-topbar">
+          <div class="info-chip" id="scope-pick-progress-chip"></div>
+        </div>
+        <div class="section-head">
+          <h2>瞄准镜选择</h2>
+          <p class="subtitle">每位玩家从抽到的两枚瞄准镜中选择本局使用的一枚。</p>
+        </div>
+        <div id="scope-pick-body" class="scope-pick-body"></div>
       </div>
     </section>
 

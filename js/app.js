@@ -156,21 +156,49 @@ const App = {
     if (!container) return;
 
     container.innerHTML = this.playerLibrary.length
-      ? this.playerLibrary.map(name => `
-          <button class="library-chip" type="button" onclick="App.usePlayerLibraryName('${name.replace(/'/g, "\\'")}')">
-            ${name}
-          </button>
-        `).join('')
-      : '';
+      ? this.playerLibrary.map(name => {
+          const safeName = name.replace(/'/g, "\\'");
+          return `
+            <span class="library-chip">
+              <button class="library-chip-name" type="button" onclick="App.usePlayerLibraryName('${safeName}')">${name}</button>
+              <button class="library-chip-remove" type="button" aria-label="删除 ${name}" onclick="App.removePlayerLibraryName('${safeName}')">×</button>
+            </span>
+          `;
+        }).join('')
+      : '<span class="library-empty">暂无名单，可在下方添加</span>';
 
     document.querySelectorAll('.player-slot').forEach((slot, index) => {
       slot.classList.toggle('is-active', index === this.activePlayerInputIndex);
     });
   },
 
+  removePlayerLibraryName(name) {
+    const index = this.playerLibrary.indexOf(name);
+    if (index < 0) return;
+    this.playerLibrary.splice(index, 1);
+    this.savePlayerLibrary();
+    this.renderPlayerLibrary();
+  },
+
   selectPlayerSlot(index) {
     this.activePlayerInputIndex = index;
-    this.renderPlayerLibrary();
+    this.syncActivePlayerSlot();
+  },
+
+  syncActivePlayerSlot() {
+    document.querySelectorAll('.player-slot').forEach((slot, index) => {
+      slot.classList.toggle('is-active', index === this.activePlayerInputIndex);
+    });
+  },
+
+  findNextEmptyPlayerSlot(fromIndex) {
+    const total = 4;
+    for (let step = 1; step <= total; step++) {
+      const idx = (fromIndex + step) % total;
+      const input = document.getElementById(`player-${idx + 1}`);
+      if (input && !input.value.trim()) return idx;
+    }
+    return -1;
   },
 
   getPreferredPlayerSlotIndex() {
@@ -192,8 +220,16 @@ const App = {
     if (!input) return;
 
     input.value = name;
-    input.focus();
-    this.selectPlayerSlot(slotIndex);
+
+    const nextIndex = this.findNextEmptyPlayerSlot(slotIndex);
+    if (nextIndex >= 0) {
+      const nextInput = document.getElementById(`player-${nextIndex + 1}`);
+      if (nextInput) nextInput.focus();
+      this.selectPlayerSlot(nextIndex);
+    } else {
+      input.focus();
+      this.selectPlayerSlot(slotIndex);
+    }
   },
 
   addPlayerLibraryName() {
@@ -387,18 +423,33 @@ const App = {
     this.enhanceAccordions(preview);
   },
 
+  pickRandomMap() {
+    if (!Array.isArray(MAPS) || !MAPS.length) return this.state.map;
+    const pick = MAPS[Math.floor(Math.random() * MAPS.length)];
+    return pick?.id || this.state.map;
+  },
+
   renderRoundMapSelection() {
+    this.state.map = this.pickRandomMap();
+    this.syncTheme();
+
     document.getElementById('map-pick-round-chip').textContent = `第 ${this.state.currentRound}/${this.state.totalRounds} 局`;
     document.getElementById('map-pick-mode-chip').textContent = this.getModeLabel();
-    this.renderMapSelector();
     this.renderMapPreview();
+
+    const preview = document.getElementById('round-map-preview');
+    if (preview) {
+      preview.classList.remove('is-revealing');
+      void preview.offsetWidth;
+      preview.classList.add('is-revealing');
+    }
+
     this.showView('view-map-select', false);
     this.saveState();
   },
 
   selectMap(mapId) {
     this.state.map = mapId;
-    this.renderMapSelector();
     this.renderMapPreview();
     this.syncTheme();
     this.saveState();
@@ -483,14 +534,41 @@ const App = {
       }
     }
 
+    const rounds = this.getSelectedTotalRounds();
+    if (!rounds || rounds < 1) {
+      alert('请输入一个有效的局数（至少 1 局）。');
+      return;
+    }
+
     this.state = this.createInitialState();
-    this.state.totalRounds = parseInt(document.getElementById('total-rounds').value, 10);
+    this.state.totalRounds = rounds;
     this.state.wheelMode = 'simultaneous';
     this.state.players = names.map(name => this.createPlayer(name));
     this.rememberNames(customNames);
     this.renderInitialCards();
     this.showView('view-initial-cards', false);
     this.saveState();
+  },
+
+  onTotalRoundsChange() {
+    const select = document.getElementById('total-rounds');
+    const wrapper = document.getElementById('total-rounds-custom-wrapper');
+    if (!select || !wrapper) return;
+    wrapper.style.display = select.value === 'custom' ? 'flex' : 'none';
+  },
+
+  getSelectedTotalRounds() {
+    const select = document.getElementById('total-rounds');
+    if (!select) return 5;
+    if (select.value === 'custom') {
+      const input = document.getElementById('total-rounds-custom');
+      const value = parseInt(input?.value, 10);
+      if (Number.isFinite(value) && value >= 1 && value <= 50) {
+        return value;
+      }
+      return NaN;
+    }
+    return parseInt(select.value, 10);
   },
 
   renderInitialCards() {
@@ -807,13 +885,12 @@ const App = {
   renderWeaponDrawPage() {
     const players = this.state.players;
     const slotLabel = this.currentDrawSlot === 0 ? '主武器' : '副武器';
-    document.getElementById('draw-subtitle').textContent = `正在随机${slotLabel}`;
+    document.getElementById('draw-subtitle').textContent = `${slotLabel}随机结果`;
 
     WeaponDraw.renderGrid('draw-grid', players, this.currentDrawSlot === 0 ? 'main' : 'sub');
 
     const btn = document.getElementById('btn-draw-all');
-    btn.textContent = '准备抽取...';
-    btn.disabled = true;
+    if (btn) btn.style.display = 'none';
 
     this.showView('view-weapon-draw', false);
     this.saveState();
@@ -823,60 +900,39 @@ const App = {
     const players = this.state.players;
     const slot = this.currentDrawSlot;
 
-    const btn = document.getElementById('btn-draw-all');
-    btn.disabled = true;
-    btn.textContent = '抽取中...';
-
     const takenIds = [];
     players.forEach(p => {
       p.weapons.forEach(w => { if (w) takenIds.push(w.id); });
     });
 
-    players.forEach((p, i) => {
+    const results = players.map(p => {
       if (p.roundEffects.includes('melee_only')) {
-        const { name: nameEl, card: cardEl } = WeaponDraw.getSlotElements(i);
-        if (nameEl) nameEl.textContent = '近战挑战';
-        if (cardEl) cardEl.className = 'draw-slot-card result';
+        return { name: '近战挑战', value: 'melee' };
+      }
+      const pool = this.buildWeightedPool(takenIds);
+      const picked = weightedRandom(pool);
+      if (picked?.id) takenIds.push(picked.id);
+      return picked;
+    });
+
+    results.forEach((weapon, i) => {
+      if (!players[i].roundEffects.includes('melee_only') && weapon) {
+        players[i].weapons[slot] = { ...weapon };
       }
     });
+    this.saveState();
 
-    const pools = players.map(p => {
-      if (p.roundEffects.includes('melee_only')) return null;
-      return this.buildWeightedPool(takenIds);
-    });
-
-    const hasAnimation = pools.some(p => p !== null);
-    if (!hasAnimation) {
-      this.afterSlotDrawn();
-      return;
-    }
-
-    const allPools = pools.map(p => p || this.buildWeightedPool(takenIds));
-
-    WeaponDraw.drawAll(allPools, (results) => {
-      results.forEach((weapon, i) => {
-        if (!players[i].roundEffects.includes('melee_only')) {
-          players[i].weapons[slot] = { ...weapon };
-        }
-      });
-      this.saveState();
-      this.afterSlotDrawn();
-    });
+    WeaponDraw.revealAll(results, () => this.afterSlotDrawn());
   },
 
-  afterSlotDrawn(results) {
-    const btn = document.getElementById('btn-draw-all');
+  afterSlotDrawn() {
     if (this.currentDrawSlot === 0) {
       this.currentDrawSlot = 1;
-      btn.textContent = '抽取副武器中...';
-      btn.disabled = true;
       setTimeout(() => {
         this.renderWeaponDrawPage();
-        setTimeout(() => this.drawAllWeapons(), 300);
+        setTimeout(() => this.drawAllWeapons(), 100);
       }, 900);
     } else {
-      btn.textContent = '继续抽取瞄准镜...';
-      btn.disabled = true;
       setTimeout(() => this.afterAllWeaponsDrawn(), 900);
     }
   },
@@ -899,35 +955,137 @@ const App = {
     const players = this.state.players;
     WeaponDraw.renderGrid('scope-draw-grid', players, 'scope');
 
-    const scopePools = players.map(() => [...SCOPES]);
     const btn = document.getElementById('btn-scope-done');
     btn.style.display = 'none';
 
     this.showView('view-scope-draw', false);
 
+    players.forEach(p => {
+      p.scopes = [weightedRandom(SCOPES), weightedRandom(SCOPES)];
+    });
+
     setTimeout(() => {
-      WeaponDraw.drawAll(scopePools, (results) => {
-        players.forEach((p, i) => {
-          const drawn1 = results[i];
-          const drawn2 = weightedRandom(SCOPES);
-          p.scopes = [drawn1, drawn2];
-
-          const { name: nameEl, info: infoEl } = WeaponDraw.getSlotElements(i);
-          if (nameEl) {
-            nameEl.textContent = p.scopes.map(s => typeof getScopeDisplayName === 'function' ? getScopeDisplayName(s) : s.name).join(' / ');
-          }
-          if (infoEl) {
-            infoEl.textContent = '';
-          }
-        });
-
-        btn.style.display = 'inline-flex';
-        this.saveState();
+      players.forEach((p, i) => {
+        const { name: nameEl, info: infoEl, card: cardEl } = WeaponDraw.getSlotElements(i);
+        if (nameEl) {
+          nameEl.textContent = p.scopes.map(s => typeof getScopeDisplayName === 'function' ? getScopeDisplayName(s) : s.name).join(' / ');
+        }
+        if (infoEl) {
+          infoEl.textContent = '';
+        }
+        if (cardEl) {
+          cardEl.className = 'draw-slot-card result is-revealed';
+        }
       });
-    }, 450);
+
+      btn.style.display = 'inline-flex';
+      this.saveState();
+    }, 120);
   },
 
   afterScopesDone() {
+    this.startScopePick();
+  },
+
+  startScopePick() {
+    this.scopePickIndex = 0;
+    this.showView('view-scope-pick', false);
+    this.renderScopePick();
+  },
+
+  renderScopePick() {
+    const idx = this.scopePickIndex || 0;
+    const players = this.state.players;
+    const player = players[idx];
+    if (!player) {
+      this.finishScopePick();
+      return;
+    }
+
+    const progressChip = document.getElementById('scope-pick-progress-chip');
+    if (progressChip) {
+      progressChip.textContent = `第 ${idx + 1} / ${players.length} 位玩家`;
+    }
+
+    const weaponHtml = (weapon, label) => {
+      if (!weapon) return '';
+      return `
+        <div class="scope-pick-weapon">
+          <span class="scope-pick-weapon-label">${label}</span>
+          <span class="scope-pick-weapon-name">${weapon.name}</span>
+          <span class="type-badge">${WEAPON_TYPES[weapon.type].name}</span>
+        </div>
+      `;
+    };
+
+    const scopesHtml = player.scopes.map((scope, i) => `
+      <button class="scope-pick-option" type="button" onclick="App.chooseScope(${i})">
+        <span class="scope-pick-option-name">${getScopeDisplayName(scope)}</span>
+      </button>
+    `).join('');
+
+    const body = document.getElementById('scope-pick-body');
+    if (!body) return;
+    body.innerHTML = `
+      <div class="scope-pick-player">
+        <h3 class="scope-pick-name">${player.name}</h3>
+        <p class="scope-pick-sub">本局使用武器</p>
+        <div class="scope-pick-weapons">
+          ${weaponHtml(player.weapons[0], '主武器')}
+          ${weaponHtml(player.weapons[1], '副武器')}
+        </div>
+        <p class="scope-pick-sub">请选择本局瞄准镜</p>
+        <div class="scope-pick-options">${scopesHtml}</div>
+      </div>
+    `;
+  },
+
+  chooseScope(scopeIndex) {
+    const idx = this.scopePickIndex || 0;
+    const player = this.state.players[idx];
+    if (!player || !player.scopes[scopeIndex]) return;
+
+    const chosen = player.scopes[scopeIndex];
+    const other = player.scopes.find((_, i) => i !== scopeIndex) || null;
+    const chosenName = getScopeDisplayName(chosen);
+    const otherName = other ? getScopeDisplayName(other) : '';
+
+    this.showModal(`
+      <h3>确认选择</h3>
+      <p class="modal-subtitle"><strong>${player.name}</strong></p>
+      <p style="text-align:center;margin-top:8px">将使用 <strong style="color:var(--accent-soft)">${chosenName}</strong> 作为本局瞄准镜${otherName ? `<br><span style="font-size:.78rem;color:var(--text-muted)">另一枚 ${otherName} 将作废不可用</span>` : ''}</p>
+      <div class="scope-pick-confirm-actions">
+        <button class="btn btn-secondary" onclick="App.closeModal()">取消</button>
+        <button class="btn btn-primary" onclick="App.confirmScopePick(${scopeIndex})">确认</button>
+      </div>
+    `);
+  },
+
+  confirmScopePick(scopeIndex) {
+    const idx = this.scopePickIndex || 0;
+    const player = this.state.players[idx];
+    if (!player || !player.scopes[scopeIndex]) {
+      this.closeModal();
+      return;
+    }
+
+    const chosen = player.scopes[scopeIndex];
+    const rest = player.scopes.filter((_, i) => i !== scopeIndex);
+    player.scopes = [chosen, ...rest];
+    player.activeScope = chosen;
+    this.closeModal();
+    this.saveState();
+
+    if (idx < this.state.players.length - 1) {
+      this.scopePickIndex = idx + 1;
+      this.renderScopePick();
+    } else {
+      this.finishScopePick();
+    }
+  },
+
+  finishScopePick() {
+    this.scopePickIndex = 0;
     this.renderRoundScreen();
     this.showView('view-round', false);
     this.saveState();
@@ -1185,6 +1343,7 @@ const App = {
         const target = this.state.players[targetIdx];
         target.weapons = this.drawWeaponPairForPlayer(targetIdx);
         target.scopes = this.drawPlayerScopes();
+        target.activeScope = target.scopes[0] || null;
         player.cards.splice(cardIndex, 1);
         this.renderPlayerStatusCards();
         this.syncRoundButtons();
@@ -1219,11 +1378,21 @@ const App = {
       return;
     }
 
+    const scopeItems = this.state.players.flatMap(player => player.scopes.map(scope => ({ ...scope })));
+    const scopePool = shuffleArray(scopeItems);
+
     this.state.players.forEach((player, index) => {
       player.weapons = [
         weaponPool[index * 2],
         weaponPool[index * 2 + 1],
       ];
+      const a = scopePool[index * 2];
+      const b = scopePool[index * 2 + 1];
+      const next = [a, b].filter(Boolean);
+      if (next.length) {
+        player.scopes = next;
+        player.activeScope = next[0] || null;
+      }
     });
 
     this.state.players[playerIdx].cards.splice(cardIndex, 1);
@@ -1233,7 +1402,11 @@ const App = {
 
     this.showCardPhaseResult(
       '全队武器替换完成',
-      this.state.players.map(player => `<p><strong>${player.name}</strong>: ${player.weapons[0].name} / ${player.weapons[1].name}</p>`).join('')
+      this.state.players.map(player => `
+        <p><strong>${player.name}</strong>: ${player.weapons[0].name} / ${player.weapons[1].name}
+        <span style="color:var(--text-muted);font-size:.8rem">（瞄准镜 ${player.scopes.map(s => getScopeDisplayName(s)).join(' / ') || '—'}）</span>
+        </p>
+      `).join('')
     );
   },
 
@@ -1284,6 +1457,18 @@ const App = {
 
     player.weapons[mySlot] = targetWeapon;
     target.weapons[targetSlot] = myWeapon;
+
+    let scopeNote = '';
+    if (player.scopes?.length && target.scopes?.length) {
+      const myScope = player.scopes[0];
+      const targetScope = target.scopes[0];
+      player.scopes[0] = targetScope ? { ...targetScope } : myScope;
+      target.scopes[0] = myScope ? { ...myScope } : targetScope;
+      player.activeScope = player.scopes[0] || null;
+      target.activeScope = target.scopes[0] || null;
+      scopeNote = `<p style="color:var(--text-muted);font-size:.85rem">同时交换主瞄准镜：${player.name} ← ${getScopeDisplayName(player.scopes[0])}，${target.name} ← ${getScopeDisplayName(target.scopes[0])}</p>`;
+    }
+
     player.cards.splice(cardIndex, 1);
 
     this.renderPlayerStatusCards();
@@ -1294,6 +1479,7 @@ const App = {
       `
         <p>${player.name} 获得 <strong>${targetWeapon.name}</strong></p>
         <p>${target.name} 获得 <strong>${myWeapon.name}</strong></p>
+        ${scopeNote}
       `
     );
   },
@@ -1730,6 +1916,10 @@ const App = {
       case 'view-scope-draw':
         this.state.players.forEach(p => { p.scopes = []; });
         this.spinScopes();
+        break;
+
+      case 'view-scope-pick':
+        this.startScopePick();
         break;
 
       case 'view-round':

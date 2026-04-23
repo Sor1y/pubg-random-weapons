@@ -10,8 +10,8 @@ const WeaponDraw = {
       return `
         <div class="draw-slot" data-slot-index="${i}">
           <div class="draw-slot-name">${p.name}</div>
-          <div class="draw-slot-card" data-role="card">
-            <div class="draw-slot-weapon" data-role="name">?</div>
+          <div class="draw-slot-card is-pending" data-role="card">
+            <div class="draw-slot-weapon" data-role="name"></div>
             <div class="draw-slot-info" data-role="info"></div>
           </div>
           ${existing}
@@ -30,6 +30,25 @@ const WeaponDraw = {
       name: slot.querySelector('[data-role="name"]'),
       info: slot.querySelector('[data-role="info"]'),
     };
+  },
+
+  revealAll(results, onAllDone) {
+    results.forEach((result, i) => {
+      const { card: cardEl, name: nameEl, info: infoEl } = this.getSlotElements(i);
+      if (!nameEl || !cardEl) return;
+      if (!result) {
+        cardEl.classList.add('result');
+        return;
+      }
+      nameEl.textContent = result.name || result.value || '?';
+      if (result.type && WEAPON_TYPES[result.type]) {
+        infoEl.textContent = WEAPON_TYPES[result.type].name;
+      } else {
+        infoEl.textContent = typeof getScopeDisplayName === 'function' ? getScopeDisplayName(result) : (result.name || '');
+      }
+      cardEl.className = 'draw-slot-card result is-revealed';
+    });
+    if (onAllDone) onAllDone(results);
   },
 
   drawAll(pools, onAllDone) {
