@@ -159,9 +159,26 @@ body::before {
   100% { background-position: 100% 50%; }
 }
 .title-hero {
-  font-size: clamp(2.6rem, 5vw, 3.8rem);
-  letter-spacing: -0.025em;
-  line-height: 1.05;
+  font-size: clamp(2.85rem, 5.8vw, 4.15rem);
+  letter-spacing: -0.03em;
+  line-height: 1.04;
+  filter: drop-shadow(0 2px 24px rgba(84, 104, 255, 0.25));
+  max-width: 20ch;
+}
+.setup-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(14px, 2.2vh, 22px);
+  width: 100%;
+  text-align: center;
+}
+.setup-hero .hero-tags {
+  justify-content: center;
+}
+.setup-hero .hero-tag {
+  font-size: 0.78rem;
+  padding: 6px 16px;
 }
 .subtitle {
   text-align: center;
@@ -278,13 +295,15 @@ h3 {
 }
 .setup-header {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: clamp(10px, 1.8vh, 18px) 4px clamp(16px, 2.4vh, 24px);
+  justify-content: center;
+  gap: 0;
+  padding: clamp(6px, 1.2vh, 14px) 8px clamp(20px, 2.6vh, 30px);
   border-bottom: 1px solid var(--border);
+  text-align: center;
 }
-.title-hero { text-align: left; margin: 0; }
+.title-hero { text-align: center; margin: 0; }
 .hero-tags { display: flex; gap: 8px; flex-wrap: wrap; }
 .hero-tag {
   padding: 5px 14px;
@@ -301,10 +320,181 @@ h3 {
 
 .setup-main {
   display: grid;
-  grid-template-columns: 1.25fr 1fr;
+  grid-template-columns: 0.86fr 1.38fr;
+  gap: 18px;
+  min-height: 0;
+  align-items: stretch;
+}
+.setup-library-panel {
+  min-height: 0;
+}
+.setup-library-panel .library-list {
+  margin-bottom: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.setup-library-panel .library-input-row {
+  margin-top: auto;
+  flex-shrink: 0;
+  padding-top: 12px;
+}
+.setup-maps {
+  display: grid;
+  grid-template-columns: 0.86fr 1.38fr;
   gap: 18px;
   min-height: 0;
 }
+.setup-map-hint {
+  margin: 0 0 12px;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  text-align: left;
+}
+.map-selection-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 0;
+  align-content: flex-start;
+  flex: 1;
+}
+.map-pool-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: 64px;
+  align-items: stretch;
+  gap: 8px;
+  min-height: 0;
+  align-content: start;
+  flex: 1;
+  overflow: visible;
+  padding-right: 0;
+}
+@media (min-width: 480px) {
+  .map-pool-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.map-select-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 22px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--map-accent, var(--accent));
+  font-family: inherit;
+  font-weight: 500;
+  overflow: hidden;
+  font-size: 0.8rem;
+  transition: border-color 0.25s, color 0.25s, background 0.25s;
+}
+.map-select-chip:hover { border-color: var(--border-strong); color: var(--text-primary); }
+.map-select-chip-text { padding: 6px 2px 6px 12px; }
+.map-select-chip-remove {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  width: 28px;
+  height: 32px;
+  cursor: pointer;
+  border-radius: 0 22px 22px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s, background 0.2s, transform 0.2s;
+  flex-shrink: 0;
+}
+.map-select-chip-remove:hover:not(:disabled) {
+  color: var(--danger);
+  background: rgba(255, 71, 87, 0.12);
+}
+.map-select-chip-remove:disabled { opacity: 0.3; cursor: not-allowed; }
+.map-pool-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 2px;
+  text-align: left;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  align-self: stretch;
+  box-sizing: border-box;
+  border-radius: var(--radius);
+  padding: 6px 10px 6px 12px;
+  line-height: 1.2;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--map-accent, var(--accent));
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.25s, background 0.25s, transform 0.2s var(--ease-bounce), box-shadow 0.25s;
+}
+.map-pool-chip:hover { border-color: var(--border-strong); background: #1d2234; transform: translateY(-1px); }
+.map-pool-chip.is-in-selection { opacity: 0.75; border-color: rgba(46, 213, 115, 0.4); }
+.map-pool-chip.is-in-selection:hover { opacity: 0.9; }
+.map-pool-chip-name {
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  font-weight: 600;
+  line-height: 1.2;
+  flex-shrink: 0;
+}
+.map-pool-chip-hint { font-size: 0.6rem; color: var(--accent-soft); line-height: 1.1; }
+.map-pool-chip-badge { font-size: 0.58rem; color: var(--success); letter-spacing: 0.04em; line-height: 1.1; }
+.map-selection-list .map-selection-empty,
+.map-selection-empty {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-style: italic;
+  padding: 8px 2px;
+  display: block;
+  width: 100%;
+}
+.input.input-setup-num,
+#total-rounds-custom.input-setup-num,
+input#total-rounds-custom {
+  -moz-appearance: textfield;
+  appearance: textfield;
+  width: 4.5rem;
+  min-width: 0;
+  text-align: center;
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 10px 8px;
+  color: var(--text-primary) !important;
+  font-size: 0.92rem;
+  font-family: inherit;
+  font-weight: 500;
+  outline: none;
+  transition: border-color 0.25s, box-shadow 0.25s, background 0.25s, color 0.25s;
+  box-shadow: none;
+  color-scheme: dark;
+}
+#total-rounds-custom:focus,
+input#total-rounds-custom:focus {
+  border-color: var(--accent) !important;
+  background: #1d2234 !important;
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.total-rounds-custom-wrap {
+  flex-direction: column;
+  gap: 6px;
+}
+.total-rounds-custom-wrap span { letter-spacing: 0.12em; }
 .setup-panel {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -1209,7 +1399,6 @@ h3 {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  animation: fadeIn 0.35s ease;
 }
 .scope-pick-name {
   font-size: clamp(1.7rem, 2.6vw, 2.1rem);
@@ -1252,27 +1441,69 @@ h3 {
   grid-template-columns: 1fr 1fr;
   gap: 14px;
 }
+.scope-pick-options-triple {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.scope-pick-choose-hint {
+  text-align: center;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin: 0 0 4px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+.scope-pick-count {
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin: 0 0 12px;
+  letter-spacing: 0.06em;
+}
+.scope-pick-count strong { color: var(--accent-soft); }
 .scope-pick-option {
+  position: relative;
   background: linear-gradient(160deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)) var(--bg-card);
   border: 1.5px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 24px 18px;
+  padding: 16px 10px;
   color: var(--text-primary);
   font-family: inherit;
-  font-size: 1.05rem;
+  font-size: 0.95rem;
   font-weight: 600;
   cursor: pointer;
-  transition: border-color 0.25s, background 0.25s, transform 0.25s var(--ease-bounce), box-shadow 0.25s;
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 86px;
+  min-height: 72px;
+  text-align: center;
+  transform: translateY(0);
+  backface-visibility: hidden;
+}
+.scope-pick-option.is-selected {
+  border-color: var(--success);
+  background: linear-gradient(135deg, rgba(46, 213, 115, 0.12), rgba(46, 213, 115, 0.04));
+  box-shadow: 0 0 0 1px rgba(46, 213, 115, 0.25);
+  animation: scopePickPulse 0.24s var(--ease-bounce) both;
+}
+@keyframes scopePickPulse {
+  0% { box-shadow: 0 0 0 0 rgba(46, 213, 115, 0.35), inset 0 0 0 0 rgba(46, 213, 115, 0.08); }
+  100% { box-shadow: 0 0 0 1px rgba(46, 213, 115, 0.25), inset 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scope-pick-option.is-selected { animation: none; }
 }
 .scope-pick-option:hover {
   border-color: var(--accent);
-  transform: translateY(-3px);
-  box-shadow: 0 16px 30px -14px var(--accent-glow);
+  box-shadow: 0 6px 20px -10px var(--accent-glow);
   background: linear-gradient(135deg, rgba(84, 104, 255, 0.12), rgba(168, 85, 247, 0.08));
+}
+.scope-pick-option.is-selected:hover {
+  border-color: var(--success);
+  box-shadow: 0 6px 20px -10px rgba(46, 213, 115, 0.45);
 }
 .scope-pick-option-name {
   background: linear-gradient(135deg, #e3e6ff, var(--accent-soft));
@@ -1289,7 +1520,23 @@ h3 {
 }
 @media (max-width: 640px) {
   .scope-pick-weapons, .scope-pick-options { grid-template-columns: 1fr; }
+  .scope-pick-options-triple { grid-template-columns: 1fr; }
 }
+
+/* 惩罚卡页：本局地图名（在「本局惩罚卡」主标题上方，与页面同字族、地图色） */
+.section-head-punishment { gap: 8px; }
+.punishment-map-art {
+  font-family: var(--font-display);
+  font-size: clamp(1.35rem, 3.2vw, 1.75rem);
+  font-weight: 700;
+  line-height: 1.25;
+  margin: 0;
+  padding: 0 8px;
+  text-align: center;
+  letter-spacing: 0.12em;
+  color: var(--map-accent, var(--accent));
+}
+.punishment-map-art[hidden] { display: none !important; }
 
 /* ============ PUNISHMENT ============ */
 .phase-summary {
@@ -1537,7 +1784,7 @@ h3 {
   body { overflow-y: auto; }
   .view { height: auto; min-height: 100vh; }
   .view-inner { max-height: none; }
-  .setup-main, .setup-grid, .map-selection-layout { grid-template-columns: 1fr; }
+  .setup-main, .setup-maps, .setup-grid, .map-selection-layout { grid-template-columns: 1fr; }
   .final-body { grid-template-columns: 1fr; }
   .player-cards-grid, .draw-grid, .loadout-grid, .damage-inputs { grid-template-columns: 1fr 1fr; }
 }
@@ -1552,7 +1799,8 @@ h3 {
   .round-actions { flex-direction: column; align-items: stretch; }
   .player-slot-grid { grid-template-columns: 1fr; }
   .setup-footer { flex-direction: column; align-items: stretch; }
-  .setup-header { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .setup-header { align-items: center; }
+  .title-hero { font-size: clamp(2.1rem, 7vw, 2.9rem); max-width: 100%; }
   .summary-card { grid-template-columns: 80px 1fr; grid-auto-flow: row; }
   .summary-card em { grid-column: 1 / -1; text-align: left; }
 }

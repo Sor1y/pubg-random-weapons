@@ -15,11 +15,13 @@
     <section id="view-setup" class="view active">
       <div class="view-inner container-home setup-shell">
         <header class="setup-header">
-          <h1 class="title title-hero">PUBG 随机武器挑战</h1>
-          <div class="hero-tags">
-            <span class="hero-tag">随机枪械</span>
-            <span class="hero-tag">道具卡</span>
-            <span class="hero-tag">惩罚卡</span>
+          <div class="setup-hero">
+            <h1 class="title title-hero">PUBG 随机武器挑战</h1>
+            <div class="hero-tags" aria-label="游戏内容">
+              <span class="hero-tag">随机枪械</span>
+              <span class="hero-tag">道具卡</span>
+              <span class="hero-tag">惩罚卡</span>
+            </div>
           </div>
         </header>
 
@@ -56,6 +58,18 @@
           </section>
         </div>
 
+        <div class="setup-maps">
+          <section class="setup-panel setup-map-pick-panel">
+            <h2>本轮地图</h2>
+            <p class="setup-map-hint">将随机在下列地图中抽取；可点右侧「图池」中的地图加入或移出。</p>
+            <div id="map-selection-list" class="map-selection-list"></div>
+          </section>
+          <section class="setup-panel setup-map-pool-panel">
+            <h2>图池</h2>
+            <div id="map-pool-list" class="map-pool-list"></div>
+          </section>
+        </div>
+
         <div class="setup-footer">
           <div class="settings-row">
             <label>
@@ -67,9 +81,9 @@
                 <option value="custom">自定义</option>
               </select>
             </label>
-            <label id="total-rounds-custom-wrapper" style="display:none">
+            <label id="total-rounds-custom-wrapper" class="total-rounds-custom-wrap" style="display:none">
               <span>自定义局数</span>
-              <input type="number" id="total-rounds-custom" min="1" max="20" value="5">
+              <input type="number" id="total-rounds-custom" class="input input-setup-num" min="1" max="20" value="5" inputmode="numeric">
             </label>
           </div>
           <button id="btn-start" class="btn btn-primary" onclick="App.startGame()">开始游戏</button>
@@ -85,26 +99,7 @@
         </div>
         <div id="initial-cards-area" class="cards-area"></div>
         <div class="view-footer">
-          <button id="btn-cards-done" class="btn btn-primary" onclick="App.finishInitialCards()" style="display:none">进入地图选择</button>
-        </div>
-      </div>
-    </section>
-
-    <section id="view-map-select" class="view">
-      <div class="view-inner container-wide container-map-reveal">
-        <div class="section-head">
-          <h2>本局地图</h2>
-          <p class="subtitle">系统已为本局随机作战地图，可直接进入下一步。</p>
-          <div class="section-meta section-meta-centered">
-            <div class="info-chip" id="map-pick-round-chip"></div>
-            <div class="info-chip" id="map-pick-mode-chip"></div>
-          </div>
-        </div>
-
-        <div id="round-map-preview" class="map-preview map-preview-panel map-preview-hero"></div>
-
-        <div class="view-footer">
-          <button class="btn btn-primary" onclick="App.confirmRoundMap()">确认并抽惩罚卡</button>
+          <button id="btn-cards-done" class="btn btn-primary" onclick="App.finishInitialCards()" style="display:none">进入惩罚卡</button>
         </div>
       </div>
     </section>
@@ -152,7 +147,7 @@
       <div class="view-inner">
         <div class="section-head">
           <h2>全员瞄准镜抽取</h2>
-          <p class="subtitle" id="scope-draw-subtitle">每人随机两枚瞄准镜</p>
+          <p class="subtitle" id="scope-draw-subtitle">每人先随机两枚，随后在瞄准镜选择页三选二</p>
         </div>
         <div class="draw-grid" id="scope-draw-grid"></div>
         <div class="view-footer">
@@ -168,7 +163,7 @@
         </div>
         <div class="section-head">
           <h2>瞄准镜选择</h2>
-          <p class="subtitle">每位玩家从抽到的两枚瞄准镜中选择本局使用的一枚。</p>
+          <p class="subtitle">每位玩家从「红点/全息」与两枚已抽镜中 <strong>三选二</strong>，本局只携带所选两枚显示在后续界面。</p>
         </div>
         <div id="scope-pick-body" class="scope-pick-body"></div>
       </div>
@@ -227,7 +222,8 @@
           <div class="info-chip" id="punishment-phase-chip"></div>
           <div class="info-chip" id="punishment-round-chip"></div>
         </div>
-        <div class="section-head">
+        <div class="section-head section-head-punishment">
+          <p class="punishment-map-art" id="punishment-map-art" data-map-title hidden></p>
           <h2>本局惩罚卡</h2>
           <p class="subtitle">本局开始时随机两名玩家抽惩罚卡，效果立即生效。</p>
         </div>

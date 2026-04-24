@@ -1,9 +1,11 @@
 const STORAGE_KEY = 'pubg_game_state_v3';
 const PLAYER_LIBRARY_KEY = 'pubg_player_library_v1';
+const MAP_POOL_SELECTION_KEY = 'pubg_map_pool_selection_v1';
 
 const App = {
   state: null,
   playerLibrary: [],
+  mapPoolSelection: [],
   activePlayerInputIndex: 0,
   currentSpinPlayer: 0,
   currentSpinSlot: 0,
@@ -12,6 +14,7 @@ const App = {
   createInitialState() {
     return {
       map: 'erangel',
+      allowedMapIds: null,
       totalRounds: 5,
       currentRound: 1,
       wheelMode: 'sequential',
@@ -81,11 +84,16 @@ const App = {
 
     hydrated.map = getMapById(hydrated.map) ? hydrated.map : base.map;
 
+    hydrated.allowedMapIds = Array.isArray(savedState.allowedMapIds)
+      ? savedState.allowedMapIds.filter(id => getMapById(id))
+      : null;
+
     return hydrated;
   },
 
   init() {
     this.state = this.createInitialState();
+    this.mapPoolSelection = this.loadMapPoolSelection();
     this.playerLibrary = this.loadPlayerLibrary();
     this.attachSetupListeners();
 
@@ -93,9 +101,97 @@ const App = {
     if (!restored) {
       this.populateSetupForm();
       this.renderPlayerLibrary();
+      this.onTotalRoundsChange();
+      this.renderMapPoolSetup();
       this.syncTheme();
       this.showView('view-setup', false);
     }
+  },
+
+  loadMapPoolSelection() {
+    const saved = localStorage.getItem(MAP_POOL_SELECTION_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length) {
+          const valid = parsed.filter(id => getMapById(id));
+          if (valid.length) {
+            return valid;
+          }
+        }
+      } catch (error) {
+        /* ignore */
+      }
+    }
+    return ALL_MAP_IDS.slice();
+  },
+
+  saveMapPoolSelection() {
+    localStorage.setItem(MAP_POOL_SELECTION_KEY, JSON.stringify(this.mapPoolSelection));
+  },
+
+  renderMapPoolSetup() {
+    const listEl = document.getElementById('map-selection-list');
+    const poolEl = document.getElementById('map-pool-list');
+    if (!listEl || !poolEl) {
+      return;
+    }
+
+    const selected = new Set(this.mapPoolSelection);
+
+    listEl.innerHTML = this.mapPoolSelection.length
+      ? this.mapPoolSelection.map(id => {
+        const map = getMapById(id);
+        if (!map) {
+          return '';
+        }
+        const canRemove = this.mapPoolSelection.length > 1;
+        const nameZh = getMapNameZh(map);
+        return `
+          <span class="map-select-chip" style="--map-accent:${map.accent};">
+            <span class="map-select-chip-text">${nameZh}</span>
+            <button type="button" class="map-select-chip-remove" ${canRemove ? '' : 'disabled'}
+              aria-label="移除 ${nameZh}" onclick="App.removeMapFromPool('${id}')">×</button>
+          </span>
+        `;
+      }).join('')
+      : '<span class="map-selection-empty">请从右侧图池点选至少一张地图</span>';
+
+    poolEl.innerHTML = MAPS.map(map => {
+      const inSet = selected.has(map.id);
+      const nameZh = getMapNameZh(map);
+      return `
+        <button type="button" class="map-pool-chip ${inSet ? 'is-in-selection' : ''}" style="--map-accent:${map.accent};"
+          onclick="App.addMapToPool('${map.id}')">
+          <span class="map-pool-chip-name">${nameZh}</span>
+          ${inSet
+            ? '<span class="map-pool-chip-badge">已选</span>'
+            : '<span class="map-pool-chip-hint">点击加入本轮</span>'}
+        </button>
+      `;
+    }).join('');
+  },
+
+  addMapToPool(id) {
+    if (!getMapById(id) || this.mapPoolSelection.includes(id)) {
+      return;
+    }
+    this.mapPoolSelection.push(id);
+    this.saveMapPoolSelection();
+    this.renderMapPoolSetup();
+  },
+
+  removeMapFromPool(id) {
+    if (this.mapPoolSelection.length <= 1) {
+      return;
+    }
+    const index = this.mapPoolSelection.indexOf(id);
+    if (index < 0) {
+      return;
+    }
+    this.mapPoolSelection.splice(index, 1);
+    this.saveMapPoolSelection();
+    this.renderMapPoolSetup();
   },
 
   attachSetupListeners() {
@@ -344,7 +440,20 @@ const App = {
   },
 
   populateSetupForm() {
-    document.getElementById('total-rounds').value = String(this.state.totalRounds);
+    const total = this.state.totalRounds;
+    const select = document.getElementById('total-rounds');
+    if (select) {
+      if ([3, 5, 7].includes(total)) {
+        select.value = String(total);
+      } else {
+        select.value = 'custom';
+        const custom = document.getElementById('total-rounds-custom');
+        if (custom) {
+          custom.value = String(total);
+        }
+      }
+    }
+    this.onTotalRoundsChange();
 
     for (let index = 0; index < 4; index++) {
       const input = document.getElementById(`player-${index + 1}`);
@@ -353,110 +462,23 @@ const App = {
     }
 
     this.selectPlayerSlot(0);
+    this.renderMapPoolSetup();
   },
 
-  renderMapSelector() {
-    const container = document.getElementById('round-map-selector');
-    if (!container) return;
-
-    container.innerHTML = MAPS.map(map => `
-        <button
-          class="map-card ${map.id === this.state.map ? 'selected' : ''}"
-          data-map="${map.id}"
-          onclick="App.selectMap('${map.id}')"
-          type="button"
-        >
-          <span class="map-name">${map.name}</span>
-          <span class="map-size">${map.size}</span>
-        </button>
-      `
-    ).join('');
-  },
-
-  renderMapPreview() {
-    const preview = document.getElementById('round-map-preview');
-    if (!preview) return;
-
-    const map = getMapById(this.state.map);
-    const weapons = getWeaponsForMap(this.state.map);
-    const exclusive = getExclusiveWeaponsForMap(this.state.map).map(weapon => weapon.name);
-    const poolHtml = Object.keys(WEAPON_TYPES).map((type, index) => {
-      const typedWeapons = getWeaponsByType(weapons, type);
-      return `
-        <details class="weapon-pool-group" data-accordion data-accordion-group="weapon-pool">
-          <summary class="weapon-pool-summary">
-            <span>${WEAPON_TYPES[type].name}</span>
-            <strong>${typedWeapons.length} 把</strong>
-          </summary>
-          <div class="weapon-pool-content" data-accordion-content>
-            <div class="weapon-pool-list">
-              ${typedWeapons.map(weapon => `<span class="weapon-pill">${weapon.name}</span>`).join('')}
-            </div>
-          </div>
-        </details>
-      `;
-    }).join('');
-
-    preview.innerHTML = `
-      <div class="map-preview-head">
-        <span class="map-preview-kicker">本局地图</span>
-        <h3>${map.name}</h3>
-      </div>
-      <div class="map-preview-meta">
-        <div class="preview-inline-stat">
-          <span>尺寸</span>
-          <strong>${map.size}</strong>
-        </div>
-        <div class="preview-inline-stat preview-inline-stat-tags">
-          <span>专属枪械</span>
-          <div class="preview-tags">
-            ${(exclusive.length ? exclusive : ['当前无专属主武器']).map(item => `<span class="preview-tag">${item}</span>`).join('')}
-          </div>
-        </div>
-      </div>
-      <div class="map-preview-block map-preview-block-pool">
-        <span class="preview-label">枪池概览</span>
-        <div class="weapon-pool-groups">${poolHtml}</div>
-      </div>
-    `;
-
-    this.enhanceAccordions(preview);
+  getActiveMapIdPool() {
+    const list = this.state.allowedMapIds;
+    if (Array.isArray(list) && list.length) {
+      return list.filter(id => getMapById(id));
+    }
+    return ALL_MAP_IDS.filter(id => getMapById(id));
   },
 
   pickRandomMap() {
-    if (!Array.isArray(MAPS) || !MAPS.length) return this.state.map;
-    const pick = MAPS[Math.floor(Math.random() * MAPS.length)];
-    return pick?.id || this.state.map;
-  },
-
-  renderRoundMapSelection() {
-    this.state.map = this.pickRandomMap();
-    this.syncTheme();
-
-    document.getElementById('map-pick-round-chip').textContent = `第 ${this.state.currentRound}/${this.state.totalRounds} 局`;
-    document.getElementById('map-pick-mode-chip').textContent = this.getModeLabel();
-    this.renderMapPreview();
-
-    const preview = document.getElementById('round-map-preview');
-    if (preview) {
-      preview.classList.remove('is-revealing');
-      void preview.offsetWidth;
-      preview.classList.add('is-revealing');
+    const pool = this.getActiveMapIdPool();
+    if (!pool.length) {
+      return this.state.map;
     }
-
-    this.showView('view-map-select', false);
-    this.saveState();
-  },
-
-  selectMap(mapId) {
-    this.state.map = mapId;
-    this.renderMapPreview();
-    this.syncTheme();
-    this.saveState();
-  },
-
-  confirmRoundMap() {
-    this.drawRoundPunishments();
+    return pool[Math.floor(Math.random() * pool.length)] || this.state.map;
   },
 
   getModeLabel() {
@@ -519,10 +541,19 @@ const App = {
       slotIndex: 0,
     };
 
-    this.renderRoundMapSelection();
+    this.state.map = this.pickRandomMap();
+    this.syncTheme();
+    this.saveState();
+    this.drawRoundPunishments();
   },
 
   startGame() {
+    const mapIds = this.mapPoolSelection.filter(id => getMapById(id));
+    if (mapIds.length < 1) {
+      alert('请至少从图池选择一张本局地图。');
+      return;
+    }
+
     const names = [];
     const customNames = [];
     for (let index = 1; index <= 4; index++) {
@@ -542,6 +573,7 @@ const App = {
 
     this.state = this.createInitialState();
     this.state.totalRounds = rounds;
+    this.state.allowedMapIds = mapIds.slice();
     this.state.wheelMode = 'simultaneous';
     this.state.players = names.map(name => this.createPlayer(name));
     this.rememberNames(customNames);
@@ -628,6 +660,19 @@ const App = {
 
   renderPunishmentView() {
     const entries = this.state.pendingPunishments || [];
+    const map = getMapById(this.state.map);
+    const mapArt = document.getElementById('punishment-map-art');
+    if (mapArt) {
+      if (map) {
+        mapArt.hidden = false;
+        mapArt.textContent = getMapNameZh(map);
+        mapArt.style.setProperty('--map-accent', map.accent);
+        mapArt.dataset.mapId = map.id;
+      } else {
+        mapArt.textContent = '';
+        mapArt.hidden = true;
+      }
+    }
     document.getElementById('punishment-phase-chip').textContent = `第 ${this.state.currentRound}/${this.state.totalRounds} 局`;
     document.getElementById('punishment-round-chip').textContent = '随机两人抽取';
     document.getElementById('phase-summary').innerHTML = `
@@ -989,8 +1034,17 @@ const App = {
 
   startScopePick() {
     this.scopePickIndex = 0;
+    this.scopePickSelection = [];
+    this._lastScopePickPlayer = -1;
     this.showView('view-scope-pick', false);
     this.renderScopePick();
+  },
+
+  getPlayerScopePickOptions(player) {
+    if (!player?.scopes || player.scopes.length < 2) {
+      return [];
+    }
+    return [SCOPE_RED_HOLO, player.scopes[0], player.scopes[1]];
   },
 
   renderScopePick() {
@@ -1002,10 +1056,24 @@ const App = {
       return;
     }
 
+    if (this._lastScopePickPlayer !== idx) {
+      this.scopePickSelection = [];
+      this._lastScopePickPlayer = idx;
+    }
+
+    const options = this.getPlayerScopePickOptions(player);
+    if (options.length !== 3) {
+      this.finishScopePick();
+      return;
+    }
+
     const progressChip = document.getElementById('scope-pick-progress-chip');
     if (progressChip) {
       progressChip.textContent = `第 ${idx + 1} / ${players.length} 位玩家`;
     }
+
+    const selected = this.scopePickSelection || [];
+    const selCount = selected.length;
 
     const weaponHtml = (weapon, label) => {
       if (!weapon) return '';
@@ -1018,11 +1086,15 @@ const App = {
       `;
     };
 
-    const scopesHtml = player.scopes.map((scope, i) => `
-      <button class="scope-pick-option" type="button" onclick="App.chooseScope(${i})">
+    const scopesHtml = options.map((scope, i) => {
+      const isOn = selected.includes(i);
+      return `
+      <button class="scope-pick-option${isOn ? ' is-selected' : ''}" type="button" onclick="App.toggleScopePickOption(${i})"
+        aria-pressed="${isOn}">
         <span class="scope-pick-option-name">${getScopeDisplayName(scope)}</span>
       </button>
-    `).join('');
+    `;
+    }).join('');
 
     const body = document.getElementById('scope-pick-body');
     if (!body) return;
@@ -1034,48 +1106,75 @@ const App = {
           ${weaponHtml(player.weapons[0], '主武器')}
           ${weaponHtml(player.weapons[1], '副武器')}
         </div>
-        <p class="scope-pick-sub">请选择本局瞄准镜</p>
-        <div class="scope-pick-options">${scopesHtml}</div>
+        <p class="scope-pick-sub">三选二 · 本局携带瞄准镜</p>
+        <p class="scope-pick-choose-hint">从 <strong>红点/全息</strong> 与下方两枚已抽镜中任选 <strong>2</strong> 个，后续界面将只显示所选两项。</p>
+        <p class="scope-pick-count">已选 <strong data-scope-sel-n>${selCount}</strong> / 2</p>
+        <div class="scope-pick-options scope-pick-options-triple" id="scope-pick-options-wrap">${scopesHtml}</div>
+        <div class="scope-pick-confirm-actions">
+          <button id="btn-scope-pick-confirm" class="btn btn-primary" type="button" ${selCount === 2 ? '' : ' disabled'}
+            onclick="App.confirmScopePairPick()">确认选择</button>
+        </div>
       </div>
     `;
   },
 
-  chooseScope(scopeIndex) {
-    const idx = this.scopePickIndex || 0;
-    const player = this.state.players[idx];
-    if (!player || !player.scopes[scopeIndex]) return;
-
-    const chosen = player.scopes[scopeIndex];
-    const other = player.scopes.find((_, i) => i !== scopeIndex) || null;
-    const chosenName = getScopeDisplayName(chosen);
-    const otherName = other ? getScopeDisplayName(other) : '';
-
-    this.showModal(`
-      <h3>确认选择</h3>
-      <p class="modal-subtitle"><strong>${player.name}</strong></p>
-      <p style="text-align:center;margin-top:8px">将使用 <strong style="color:var(--accent-soft)">${chosenName}</strong> 作为本局瞄准镜${otherName ? `<br><span style="font-size:.78rem;color:var(--text-muted)">另一枚 ${otherName} 将作废不可用</span>` : ''}</p>
-      <div class="scope-pick-confirm-actions">
-        <button class="btn btn-secondary" onclick="App.closeModal()">取消</button>
-        <button class="btn btn-primary" onclick="App.confirmScopePick(${scopeIndex})">确认</button>
-      </div>
-    `);
-  },
-
-  confirmScopePick(scopeIndex) {
-    const idx = this.scopePickIndex || 0;
-    const player = this.state.players[idx];
-    if (!player || !player.scopes[scopeIndex]) {
-      this.closeModal();
+  updateScopePickSelectionUI() {
+    const body = document.getElementById('scope-pick-body');
+    if (!body) {
       return;
     }
+    const selected = this.scopePickSelection || [];
+    const selCount = selected.length;
+    const nEl = body.querySelector('[data-scope-sel-n]');
+    if (nEl) {
+      nEl.textContent = String(selCount);
+    }
+    body.querySelectorAll('#scope-pick-options-wrap .scope-pick-option').forEach((btn, i) => {
+      const isOn = selected.includes(i);
+      btn.classList.toggle('is-selected', isOn);
+      btn.setAttribute('aria-pressed', String(isOn));
+    });
+    const confirmBtn = document.getElementById('btn-scope-pick-confirm');
+    if (confirmBtn) {
+      if (selCount === 2) {
+        confirmBtn.removeAttribute('disabled');
+      } else {
+        confirmBtn.setAttribute('disabled', '');
+      }
+    }
+  },
 
-    const chosen = player.scopes[scopeIndex];
-    const rest = player.scopes.filter((_, i) => i !== scopeIndex);
-    player.scopes = [chosen, ...rest];
-    player.activeScope = chosen;
-    this.closeModal();
+  toggleScopePickOption(optionIndex) {
+    const idx = this.scopePickIndex || 0;
+    const player = this.state.players[idx];
+    const options = this.getPlayerScopePickOptions(player);
+    if (optionIndex < 0 || optionIndex >= options.length) {
+      return;
+    }
+    if (!this.scopePickSelection) {
+      this.scopePickSelection = [];
+    }
+    const pos = this.scopePickSelection.indexOf(optionIndex);
+    if (pos >= 0) {
+      this.scopePickSelection.splice(pos, 1);
+    } else if (this.scopePickSelection.length < 2) {
+      this.scopePickSelection.push(optionIndex);
+    }
+    this.updateScopePickSelectionUI();
+  },
+
+  confirmScopePairPick() {
+    const idx = this.scopePickIndex || 0;
+    const player = this.state.players[idx];
+    const options = this.getPlayerScopePickOptions(player);
+    const selected = this.scopePickSelection || [];
+    if (selected.length !== 2 || options.length !== 3) {
+      return;
+    }
+    const order = [...selected].sort((a, b) => a - b);
+    player.scopes = order.map(i => ({ ...options[i] }));
+    player.activeScope = player.scopes[0] || null;
     this.saveState();
-
     if (idx < this.state.players.length - 1) {
       this.scopePickIndex = idx + 1;
       this.renderScopePick();
@@ -1860,8 +1959,12 @@ const App = {
   },
 
   restart() {
+    const lastPool = Array.isArray(this.state.allowedMapIds) && this.state.allowedMapIds.length
+      ? this.state.allowedMapIds.slice()
+      : null;
     localStorage.removeItem(STORAGE_KEY);
     this.state = this.createInitialState();
+    this.mapPoolSelection = lastPool || this.loadMapPoolSelection();
     this.currentSpinPlayer = 0;
     this.currentSpinSlot = 0;
     this.cardPhaseSession = null;
@@ -1885,9 +1988,18 @@ const App = {
         this.showView('view-initial-cards', false);
         break;
 
-      case 'view-map-select':
-        this.renderRoundMapSelection();
+      case 'view-map-select': {
+        if (!getMapById(this.state.map)) {
+          this.state.map = this.pickRandomMap();
+        }
+        this.syncTheme();
+        if (!this.state.pendingPunishments?.length) {
+          this.drawRoundPunishments();
+        } else {
+          this.renderPunishmentView();
+        }
         break;
+      }
 
       case 'view-loadout':
         this.renderRoundScreen();
@@ -1952,6 +2064,9 @@ const App = {
       this.state = hydrated;
       this.currentSpinPlayer = this.state.spinState?.playerIndex || 0;
       this.currentSpinSlot = this.state.spinState?.slotIndex || 0;
+      this.mapPoolSelection = Array.isArray(this.state.allowedMapIds) && this.state.allowedMapIds.length
+        ? this.state.allowedMapIds.slice()
+        : this.loadMapPoolSelection();
       this.populateSetupForm();
       this.renderPlayerLibrary();
       this.syncTheme();

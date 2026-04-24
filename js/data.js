@@ -109,6 +109,9 @@ const WEAPON_TYPES = {
   SG: { name: '喷子', fullName: '霰弹枪', color: '#8fe3c4' },
 };
 
+/** 不在随机池内，仅用于三选二（红点/全息 + 两枚已抽镜） */
+const SCOPE_RED_HOLO = { id: 'red_holo', name: '红点 / 全息', value: '1x', weight: 0 };
+
 const SCOPES = [
   { name: '2倍镜', value: '2x', weight: 25 },
   { name: '3倍镜', value: '3x', weight: 25 },
@@ -228,6 +231,15 @@ const DRAW_BALANCE = {
 
 function getMapById(mapId) {
   return MAPS.find(map => map.id === mapId);
+}
+
+/** 仅用于界面展示：取名称中第一截中文（如「泰戈 Taego」→「泰戈」） */
+function getMapNameZh(mapOrId) {
+  const map = typeof mapOrId === 'string' ? getMapById(mapOrId) : mapOrId;
+  if (!map || !map.name) {
+    return '';
+  }
+  return map.name.split(/\s+/)[0] || map.name;
 }
 
 function getWeaponsForMap(mapId) {
